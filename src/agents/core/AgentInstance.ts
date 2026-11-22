@@ -67,6 +67,10 @@ export class AgentInstance {
     this.lifecycle = new AgentLifecycle("IDLE");
   }
 
+  public updateConfig(newConfig: AgentConfig): void {
+    (this as any).config = newConfig;
+  }
+
   public get agentId(): string {
     return this.config.agentId;
   }
@@ -116,27 +120,29 @@ export class AgentInstance {
   /**
    * Main controlled reasoning loop
    */
-  public async executeCurrentTask(maxIterations = 8): Promise<void> {
+  public async executeCurrentTask(maxIterations?: number): Promise<void> {
     if (!this.currentTask || this.isRunning) return;
     this.isRunning = true;
     const task = this.currentTask;
+    const effectiveMaxIterations = maxIterations ?? this.config.execution?.maxIterations ?? 8;
     this.taskManager.startTask(task.id);
 
     try {
       let iteration = 0;
       let completed = false;
 
-      while (iteration < maxIterations && !completed) {
+      while (iteration < effectiveMaxIterations && !completed) {
         iteration++;
 
         // 1. OBSERVE & THINK (Actual Model Call)
         this.lifecycle.transition("THINKING", `Turn #${iteration}`);
-        this.emitStateChange(`Thinking (Turn ${iteration}/${maxIterations})...`);
+        this.emitStateChange(`Thinking (Turn ${iteration}/${effectiveMaxIterations})...`);
 
         const prompt = this.buildPrompt(task, iteration);
         const aiResponse = await this.aiProvider.generate({
           prompt,
           systemInstruction: this.buildSystemPrompt(),
+          temperature: this.config.execution?.temperature ?? 0.7,
           model: undefined,
         });
 
@@ -159,6 +165,7 @@ export class AgentInstance {
               workspaceDir: this.workspaceDir,
               eventBus: this.eventBus,
               antigravityBridge: this.antigravityBridge,
+              permissions: this.config.permissions,
             },
             this.config.allowedTools
           );
@@ -218,10 +225,10 @@ export class AgentInstance {
         }
       }
 
-      if (!completed && iteration >= maxIterations) {
+      if (!completed && iteration >= effectiveMaxIterations) {
         this.lifecycle.transition("COMPLETED", "Reached max iterations");
         this.emitStateChange(`Completed (iteration limit reached)`);
-        this.taskManager.completeTask(task.id, `Task reached maximum permitted turns (${maxIterations}). Intermediate findings preserved.`);
+        this.taskManager.completeTask(task.id, `Task reached maximum permitted turns (${effectiveMaxIterations}). Intermediate findings preserved.`);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

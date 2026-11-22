@@ -88,6 +88,39 @@ export class ToolRegistry {
       };
     }
 
+    // Backend-enforced permission check
+    if (context.permissions) {
+      const p = context.permissions;
+      if (name === "workspace_write_file" && !p.canModifyFiles) {
+        return {
+          success: false,
+          output: "",
+          error: `Permission Denied: Agent ${context.agentName} does not have 'canModifyFiles' permission.`,
+        };
+      }
+      if ((name === "delegate_to_antigravity" || name === "check_antigravity_bridge") && !p.canUseAntigravity) {
+        return {
+          success: false,
+          output: "",
+          error: `Permission Denied: Agent ${context.agentName} does not have 'canUseAntigravity' permission.`,
+        };
+      }
+      if ((name === "web_search" || name === "web_fetch") && !p.canAccessNetwork) {
+        return {
+          success: false,
+          output: "",
+          error: `Permission Denied: Agent ${context.agentName} does not have 'canAccessNetwork' permission.`,
+        };
+      }
+      if ((name === "send_agent_message" || name === "post_office_memo") && !p.canCommunicateWithPeers) {
+        return {
+          success: false,
+          output: "",
+          error: `Permission Denied: Agent ${context.agentName} does not have 'canCommunicateWithPeers' permission.`,
+        };
+      }
+    }
+
     const tool = this.tools.get(name);
     if (!tool) {
       return {

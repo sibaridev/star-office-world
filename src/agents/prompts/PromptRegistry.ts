@@ -346,6 +346,88 @@ ${agentPrompt}`;
     return { success: true, version: rollbackVersion };
   }
 
+  public registerAgent(agentId: string, name: string, role: string, systemPrompt: string): AgentPromptVersion {
+    let active = this.activeVersions.get(agentId);
+    if (!active) {
+      const content = systemPrompt.trim();
+      const v1: AgentPromptVersion = {
+        agentId,
+        version: 1,
+        versionId: "v1",
+        content,
+        hash: PromptRegistry.hashContent(content),
+        createdAt: Date.now(),
+        author: "system",
+        changeDescription: `Initial baseline prompt for ${name} (${role})`,
+        parentVersionId: null,
+        status: "active",
+        activatedAt: Date.now(),
+      };
+      this.saveVersion(v1);
+      if (!this.versions.has(agentId)) {
+        this.versions.set(agentId, new Map());
+      }
+      this.versions.get(agentId)!.set("v1", v1);
+      this.activeVersions.set(agentId, v1);
+      return v1;
+    }
+    return active;
+  }
+
+  public setAgentPrompt(
+    agentId: string,
+    newPrompt: string,
+    changeDescription: string,
+    author: string
+  ): AgentPromptVersion {
+    const active = this.getActiveVersion(agentId);
+    const content = newPrompt.trim();
+    if (!active) {
+      return this.registerAgent(agentId, agentId, "Agent", newPrompt);
+    }
+
+    if (active.content === content) {
+      return active;
+    }
+
+    active.status = "archived";
+    this.saveVersion(active);
+
+    const nextVerNum = active.version + 1;
+    const nextVerId = `v${nextVerNum}`;
+    const newVersion: AgentPromptVersion = {
+      agentId,
+      version: nextVerNum,
+      versionId: nextVerId,
+      content,
+      hash: PromptRegistry.hashContent(content),
+      createdAt: Date.now(),
+      author,
+      changeDescription,
+      parentVersionId: active.versionId,
+      status: "active",
+      activatedAt: Date.now(),
+    };
+
+    this.saveVersion(newVersion);
+    this.versions.get(agentId)!.set(nextVerId, newVersion);
+    this.activeVersions.set(agentId, newVersion);
+
+    this.logAudit({
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now(),
+      agentId,
+      action: "applied",
+      actor: author,
+      details: {
+        versionId: nextVerId,
+        note: changeDescription,
+      },
+    });
+
+    return newVersion;
+  }
+
   public logAudit(event: PromptAuditEvent): void {
     try {
       fs.appendFileSync(this.auditLogPath, JSON.stringify(event) + "\n", "utf8");

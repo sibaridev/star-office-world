@@ -4961,17 +4961,21 @@ function toggleBrokerPanel() {
             const viewGen = document.getElementById('tb-view-general');
             const viewAg = document.getElementById('tb-view-antigravity');
             const viewPr = document.getElementById('tb-view-prompts');
+            const viewWf = document.getElementById('tb-view-workforce');
             const tabGen = document.getElementById('tb-tab-general');
             const tabAg = document.getElementById('tb-tab-antigravity');
             const tabPr = document.getElementById('tb-tab-prompts');
+            const tabWf = document.getElementById('tb-tab-workforce');
 
             // Reset all tabs
             if (viewGen) viewGen.style.display = 'none';
             if (viewAg) viewAg.style.display = 'none';
             if (viewPr) viewPr.style.display = 'none';
+            if (viewWf) viewWf.style.display = 'none';
             if (tabGen) { tabGen.style.background = '#1e293b'; tabGen.style.color = '#94a3b8'; tabGen.style.borderColor = '#475569'; }
             if (tabAg) { tabAg.style.background = '#1e293b'; tabAg.style.color = '#94a3b8'; tabAg.style.borderColor = '#475569'; }
             if (tabPr) { tabPr.style.background = '#1e293b'; tabPr.style.color = '#94a3b8'; tabPr.style.borderColor = '#475569'; }
+            if (tabWf) { tabWf.style.background = '#1e293b'; tabWf.style.color = '#94a3b8'; tabWf.style.borderColor = '#475569'; }
 
             if (tab === 'antigravity') {
                 if (viewAg) viewAg.style.display = 'flex';
@@ -4981,6 +4985,10 @@ function toggleBrokerPanel() {
                 if (viewPr) viewPr.style.display = 'flex';
                 if (tabPr) { tabPr.style.background = '#a855f7'; tabPr.style.color = '#fff'; tabPr.style.borderColor = '#c084fc'; }
                 loadPromptGovernanceData();
+            } else if (tab === 'workforce') {
+                if (viewWf) viewWf.style.display = 'flex';
+                if (tabWf) { tabWf.style.background = '#059669'; tabWf.style.color = '#fff'; tabWf.style.borderColor = '#34d399'; }
+                loadWorkforceData();
             } else {
                 if (viewGen) viewGen.style.display = 'flex';
                 if (tabGen) { tabGen.style.background = '#0284c7'; tabGen.style.color = '#fff'; tabGen.style.borderColor = '#38bdf8'; }
@@ -5250,6 +5258,366 @@ function toggleBrokerPanel() {
                 }
             } catch (err) {
                 alert(`Error: ${err.message}`);
+            }
+        }
+
+        // ── Phase 14: Agent Workforce Management UI Logic ────────────────
+        let workforceAgentsCache = [];
+        let workforceTemplatesCache = [];
+
+        async function loadWorkforceData() {
+            try {
+                const res = await fetch('/api/agent-management/agents', { cache: 'no-store' });
+                if (res.ok) {
+                    const data = await res.json();
+                    workforceAgentsCache = data.agents || [];
+                    renderWorkforceGrid(workforceAgentsCache);
+                }
+                const tplRes = await fetch('/api/agent-management/templates', { cache: 'no-store' });
+                if (tplRes.ok) {
+                    const tplData = await tplRes.json();
+                    workforceTemplatesCache = tplData.templates || [];
+                    populateTemplateOptions(workforceTemplatesCache);
+                }
+            } catch (err) {
+                console.warn('[workforce] Failed to load workforce data:', err);
+            }
+        }
+
+        function filterWorkforceAgents() {
+            const query = (document.getElementById('wf-search')?.value || '').toLowerCase().trim();
+            const statusFilter = document.getElementById('wf-filter-status')?.value || 'ALL';
+
+            let filtered = workforceAgentsCache;
+            if (statusFilter !== 'ALL') {
+                filtered = filtered.filter(a => a.lifecycleStatus === statusFilter);
+            }
+            if (query) {
+                filtered = filtered.filter(a =>
+                    a.name.toLowerCase().includes(query) ||
+                    a.agentId.toLowerCase().includes(query) ||
+                    a.role.toLowerCase().includes(query) ||
+                    a.description.toLowerCase().includes(query)
+                );
+            }
+            renderWorkforceGrid(filtered);
+        }
+
+        function renderWorkforceGrid(agents) {
+            const grid = document.getElementById('wf-agents-grid');
+            if (!grid) return;
+            if (agents.length === 0) {
+                grid.innerHTML = '<div style="color:#64748b; font-size:12px; text-align:center; padding:20px; grid-column:1/-1;">No agents found matching criteria.</div>';
+                return;
+            }
+
+            grid.innerHTML = agents.map(a => {
+                let badgeBg = '#1e293b';
+                let badgeColor = '#94a3b8';
+                if (a.lifecycleStatus === 'ACTIVE') { badgeBg = '#14532d'; badgeColor = '#86efac'; }
+                else if (a.lifecycleStatus === 'PAUSED') { badgeBg = '#713f12'; badgeColor = '#fde047'; }
+                else if (a.lifecycleStatus === 'READY' || a.lifecycleStatus === 'CONFIGURED') { badgeBg = '#075985'; badgeColor = '#38bdf8'; }
+                else if (a.lifecycleStatus === 'ARCHIVED') { badgeBg = '#334155'; badgeColor = '#94a3b8'; }
+
+                const toolsCount = a.allowedTools ? a.allowedTools.length : 0;
+                const canToggle = a.lifecycleStatus === 'ACTIVE' || a.lifecycleStatus === 'PAUSED';
+                const toggleLabel = a.lifecycleStatus === 'ACTIVE' ? '⏸ Pause' : '▶ Activate';
+                const toggleColor = a.lifecycleStatus === 'ACTIVE' ? '#eab308' : '#22c55e';
+
+                return `
+                    <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; gap:8px;">
+                        <div>
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                                <div>
+                                    <span style="font-size:14px; font-weight:bold; color:#f8fafc;">${a.name}</span>
+                                    ${a.isMain ? '<span style="font-size:9px; background:#f4c430; color:#0f172a; font-weight:bold; padding:1px 5px; border-radius:3px; margin-left:4px;">MAIN</span>' : ''}
+                                    <div style="font-size:10px; color:#64748b; font-family:monospace;">ID: ${a.agentId}</div>
+                                </div>
+                                <span style="font-size:10px; padding:2px 7px; border-radius:8px; background:${badgeBg}; color:${badgeColor}; font-weight:bold; border:1px solid ${badgeColor}33;">${a.lifecycleStatus}</span>
+                            </div>
+                            <div style="font-size:12px; color:#38bdf8; font-weight:bold; margin-top:2px;">${a.role}</div>
+                            <div style="font-size:11px; color:#94a3b8; margin-top:4px; line-height:1.3; max-height:42px; overflow:hidden; text-overflow:ellipsis;">${a.description || ''}</div>
+                        </div>
+
+                        <div style="font-size:11px; color:#64748b; display:flex; justify-content:space-between; align-items:center; border-top:1px solid #1e293b; padding-top:6px;">
+                            <span>Tools: <b style="color:#cbd5e1;">${toolsCount}</b></span>
+                            <span>Version: <b style="color:#c084fc;">v${a.configVersion || 1}</b></span>
+                        </div>
+
+                        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+                            <button onclick="openEditAgentModal('${a.agentId}')" style="background:#1e293b; color:#38bdf8; border:1px solid #38bdf8; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; flex:1;">✏️ Edit</button>
+                            <button onclick="cloneAgentPromptUI('${a.agentId}')" style="background:#1e293b; color:#c084fc; border:1px solid #c084fc; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">🐑 Clone</button>
+                            ${canToggle ? `<button onclick="toggleAgentStatusUI('${a.agentId}', '${a.lifecycleStatus}')" style="background:#1e293b; color:${toggleColor}; border:1px solid ${toggleColor}; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">${toggleLabel}</button>` : ''}
+                            <button onclick="openConfigHistoryModal('${a.agentId}')" style="background:#1e293b; color:#fde047; border:1px solid #fde047; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">📜 History</button>
+                            <button onclick="openPlaygroundModal('${a.agentId}')" style="background:#1e293b; color:#34d399; border:1px solid #34d399; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">🧪 Test</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function populateTemplateOptions(templates) {
+            const select = document.getElementById('wf-wizard-template-select');
+            if (!select) return;
+            select.innerHTML = '<option value="">-- Start from Scratch or select a Template --</option>' +
+                templates.map(t => `<option value="${t.templateId}">${t.name} (${t.baseRole})</option>`).join('');
+        }
+
+        function applyTemplateToWizard(templateId) {
+            const template = workforceTemplatesCache.find(t => t.templateId === templateId);
+            if (!template) return;
+            document.getElementById('wf-wiz-role').value = template.baseRole;
+            document.getElementById('wf-wiz-desc').value = template.description;
+            document.getElementById('wf-wiz-prompt').value = template.defaultSystemPrompt;
+            updatePromptCharCount();
+            const toolBoxes = document.querySelectorAll('.wf-tool-checkbox');
+            toolBoxes.forEach(cb => {
+                cb.checked = (template.recommendedTools || []).includes(cb.value);
+            });
+        }
+
+        function updatePromptCharCount() {
+            const text = document.getElementById('wf-wiz-prompt')?.value || '';
+            const countEl = document.getElementById('wf-wiz-prompt-count');
+            if (countEl) {
+                const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+                countEl.textContent = `${text.length} chars | ${words} words`;
+            }
+        }
+
+        function openCreateAgentModal() {
+            document.getElementById('wf-wizard-title').textContent = '✨ Create New AI Agent';
+            document.getElementById('wf-wiz-id').value = '';
+            document.getElementById('wf-wiz-id').disabled = false;
+            document.getElementById('wf-wiz-name').value = '';
+            document.getElementById('wf-wiz-role').value = '';
+            document.getElementById('wf-wiz-desc').value = '';
+            document.getElementById('wf-wiz-prompt').value = '';
+            document.getElementById('wf-wiz-editing').value = 'false';
+            document.querySelectorAll('.wf-tool-checkbox').forEach(cb => { cb.checked = false; });
+            document.querySelectorAll('.wf-perm-checkbox').forEach(cb => { cb.checked = true; });
+            updatePromptCharCount();
+            document.getElementById('wf-agent-wizard-modal').style.display = 'flex';
+        }
+
+        function openEditAgentModal(agentId) {
+            const agent = workforceAgentsCache.find(a => a.agentId === agentId);
+            if (!agent) return;
+            document.getElementById('wf-wizard-title').textContent = `✏️ Edit Agent: ${agent.name}`;
+            document.getElementById('wf-wiz-id').value = agent.agentId;
+            document.getElementById('wf-wiz-id').disabled = true;
+            document.getElementById('wf-wiz-name').value = agent.name;
+            document.getElementById('wf-wiz-role').value = agent.role;
+            document.getElementById('wf-wiz-desc').value = agent.description || '';
+            document.getElementById('wf-wiz-prompt').value = agent.systemPrompt || '';
+            document.getElementById('wf-wiz-editing').value = 'true';
+            document.querySelectorAll('.wf-tool-checkbox').forEach(cb => {
+                cb.checked = (agent.allowedTools || []).includes(cb.value);
+            });
+            document.querySelectorAll('.wf-perm-checkbox').forEach(cb => {
+                const p = agent.permissions || {};
+                cb.checked = p[cb.value] !== false;
+            });
+            updatePromptCharCount();
+            document.getElementById('wf-agent-wizard-modal').style.display = 'flex';
+        }
+
+        async function saveAgentFromWizard() {
+            const isEditing = document.getElementById('wf-wiz-editing').value === 'true';
+            const agentId = document.getElementById('wf-wiz-id').value.trim();
+            const name = document.getElementById('wf-wiz-name').value.trim();
+            const role = document.getElementById('wf-wiz-role').value.trim();
+            const description = document.getElementById('wf-wiz-desc').value.trim();
+            const systemPrompt = document.getElementById('wf-wiz-prompt').value.trim();
+            const statusSpan = document.getElementById('wf-wiz-status');
+
+            if (!agentId || !name || !role || !systemPrompt) {
+                if (statusSpan) {
+                    statusSpan.style.color = '#ef4444';
+                    statusSpan.textContent = 'Agent ID, Name, Role, and System Prompt are required.';
+                }
+                return;
+            }
+
+            const allowedTools = [];
+            document.querySelectorAll('.wf-tool-checkbox:checked').forEach(cb => {
+                allowedTools.push(cb.value);
+            });
+
+            const permissions = {};
+            document.querySelectorAll('.wf-perm-checkbox').forEach(cb => {
+                permissions[cb.value] = cb.checked;
+            });
+
+            const payload = {
+                name,
+                role,
+                description,
+                systemPrompt,
+                allowedTools,
+                permissions,
+                lifecycleStatus: 'ACTIVE',
+            };
+
+            try {
+                let res;
+                if (isEditing) {
+                    res = await fetch(`/api/agent-management/agents/${agentId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    res = await fetch('/api/agent-management/agents', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ agentId, ...payload })
+                    });
+                }
+
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    document.getElementById('wf-agent-wizard-modal').style.display = 'none';
+                    await loadWorkforceData();
+                } else {
+                    if (statusSpan) {
+                        statusSpan.style.color = '#ef4444';
+                        statusSpan.textContent = data.error || 'Failed to save agent.';
+                    }
+                }
+            } catch (err) {
+                if (statusSpan) {
+                    statusSpan.style.color = '#ef4444';
+                    statusSpan.textContent = err.message;
+                }
+            }
+        }
+
+        async function toggleAgentStatusUI(agentId, currentStatus) {
+            const newStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+            try {
+                const res = await fetch(`/api/agent-management/agents/${agentId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus, reason: `Status toggled to ${newStatus}` })
+                });
+                if (res.ok) {
+                    await loadWorkforceData();
+                }
+            } catch (err) {
+                alert(`Error toggling status: ${err.message}`);
+            }
+        }
+
+        async function cloneAgentPromptUI(agentId) {
+            const newAgentId = prompt(`Enter new unique Agent ID for clone of '${agentId}':`, `${agentId}_clone`);
+            if (!newAgentId) return;
+            const newName = prompt('Enter display name for cloned agent:');
+            try {
+                const res = await fetch(`/api/agent-management/agents/${agentId}/clone`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newAgentId, newName: newName || undefined })
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    await loadWorkforceData();
+                } else {
+                    alert(`Clone failed: ${data.error}`);
+                }
+            } catch (err) {
+                alert(`Network error: ${err.message}`);
+            }
+        }
+
+        async function openConfigHistoryModal(agentId) {
+            try {
+                const res = await fetch(`/api/agent-management/agents/${agentId}/history`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const container = document.getElementById('wf-history-list');
+                    document.getElementById('wf-history-agent-title').textContent = `Configuration History: ${agentId}`;
+                    if (container) {
+                        container.innerHTML = (data.versions || []).map(v => `
+                            <div style="background:#0f172a; border:1px solid #334155; border-radius:4px; padding:10px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <div style="font-size:13px; font-weight:bold; color:#f8fafc;">${v.versionId} <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${new Date(v.timestamp).toLocaleString()})</span></div>
+                                    <div style="font-size:11px; color:#64748b;">Author: ${v.author} · Reason: ${v.changeReason}</div>
+                                    <div style="font-size:10px; color:#38bdf8; font-family:monospace;">Changed: ${(v.changedFields || []).join(', ') || 'initial'}</div>
+                                </div>
+                                <button onclick="rollbackAgentVersionUI('${agentId}', '${v.versionId}')" style="background:#713f12; color:#fde047; border:1px solid #eab308; border-radius:4px; padding:4px 10px; font-size:11px; cursor:pointer;">⏪ Rollback</button>
+                            </div>
+                        `).join('');
+                    }
+                    document.getElementById('wf-history-modal').style.display = 'flex';
+                }
+            } catch (err) {
+                alert(`Error: ${err.message}`);
+            }
+        }
+
+        async function rollbackAgentVersionUI(agentId, versionId) {
+            if (!confirm(`Are you sure you want to rollback ${agentId} to configuration version ${versionId}?`)) return;
+            try {
+                const res = await fetch(`/api/agent-management/agents/${agentId}/rollback`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ targetVersionId: versionId, reason: `Rolled back to ${versionId}` })
+                });
+                if (res.ok) {
+                    document.getElementById('wf-history-modal').style.display = 'none';
+                    await loadWorkforceData();
+                } else {
+                    const err = await res.json();
+                    alert(`Rollback failed: ${err.error}`);
+                }
+            } catch (err) {
+                alert(`Network error: ${err.message}`);
+            }
+        }
+
+        function openPlaygroundModal(agentId) {
+            const select = document.getElementById('wf-play-agent');
+            if (select) {
+                select.innerHTML = workforceAgentsCache.map(a => `<option value="${a.agentId}" ${a.agentId === agentId ? 'selected' : ''}>${a.name} (${a.role})</option>`).join('');
+            }
+            document.getElementById('wf-play-instruction').value = '';
+            document.getElementById('wf-play-output').textContent = 'Ready to execute playground sandbox test...';
+            document.getElementById('wf-playground-modal').style.display = 'flex';
+        }
+
+        async function runPlaygroundTestUI() {
+            const agentId = document.getElementById('wf-play-agent').value;
+            const instruction = document.getElementById('wf-play-instruction').value.trim();
+            const toolsEnabled = document.getElementById('wf-play-tools').checked;
+            const outputEl = document.getElementById('wf-play-output');
+            const statusEl = document.getElementById('wf-play-status');
+
+            if (!instruction) {
+                alert('Please provide test instruction.');
+                return;
+            }
+
+            try {
+                if (statusEl) statusEl.textContent = 'Running sandbox test in Gemini session...';
+                const res = await fetch('/api/agent-management/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ agentId, testInstruction: instruction, toolsEnabled })
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    if (statusEl) statusEl.textContent = `Completed in ${data.result.executionDurationMs}ms (Provider: ${data.result.modelProvider})`;
+                    let summary = `=== Execution Result ===\n${data.result.response}\n\n=== Simulated Tool Calls (${data.result.toolCallsMade.length}) ===\n`;
+                    data.result.toolCallsMade.forEach(tc => {
+                        summary += `* Tool: ${tc.tool}\n  Args: ${JSON.stringify(tc.args)}\n  Result: ${tc.result}\n\n`;
+                    });
+                    if (outputEl) outputEl.textContent = summary;
+                } else {
+                    if (statusEl) statusEl.textContent = `Error: ${data.error}`;
+                }
+            } catch (err) {
+                if (statusEl) statusEl.textContent = `Failed: ${err.message}`;
             }
         }
 
@@ -5675,6 +6043,7 @@ function toggleBrokerPanel() {
           <button id="tb-tab-general" onclick="switchTaskBoardTab('general')" style="background:#0284c7; color:#fff; border:1px solid #38bdf8; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Office Tasks</button>
           <button id="tb-tab-antigravity" onclick="switchTaskBoardTab('antigravity')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Antigravity Bridge 🚀</button>
           <button id="tb-tab-prompts" onclick="switchTaskBoardTab('prompts')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Prompt Governance 🧠</button>
+          <button id="tb-tab-workforce" onclick="switchTaskBoardTab('workforce')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Agent Workforce 👥</button>
           <button class="task-board-close-btn" onclick="toggleTaskBoard(false)" style="background:#334155; color:#fff; border:none; padding:4px 10px; cursor:pointer; border-radius:4px; font-family:ArkPixel,monospace;">✕</button>
         </div>
       </div>
@@ -5879,6 +6248,160 @@ function toggleBrokerPanel() {
           <div id="prompt-proposals-list" style="display:flex; flex-direction:column; gap:10px;"></div>
         </div>
       </div>
+
+      <!-- PHASE 14: AGENT WORKFORCE MANAGEMENT VIEW -->
+      <div id="tb-view-workforce" style="display:none; padding:16px 20px; overflow-y:auto; flex:1; flex-direction:column; gap:16px;">
+        <!-- Control Bar -->
+        <div style="background:#131c38; border:1px solid #334155; border-radius:6px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1;">
+            <input id="wf-search" oninput="filterWorkforceAgents()" type="text" placeholder="🔍 Search workforce..." style="background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; min-width:200px;" />
+            <select id="wf-filter-status" onchange="filterWorkforceAgents()" style="background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px;">
+              <option value="ALL">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="PAUSED">Paused</option>
+              <option value="READY">Ready</option>
+              <option value="CONFIGURED">Configured</option>
+              <option value="ARCHIVED">Archived</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button onclick="openCreateAgentModal()" style="background:#059669; color:#fff; font-weight:bold; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">+ Create Agent</button>
+            <button onclick="openPlaygroundModal()" style="background:#0284c7; color:#fff; font-weight:bold; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px;">🧪 Test Playground</button>
+            <button onclick="loadWorkforceData()" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:6px 10px; border-radius:4px; cursor:pointer; font-size:12px;">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- Agents Grid -->
+        <div>
+          <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">👥 Registered Autonomous AI Agents</div>
+          <div id="wf-agents-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Agent Creation / Editing Wizard Modal -->
+    <div id="wf-agent-wizard-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:99995; justify-content:center; align-items:center; backdrop-filter:blur(3px);">
+      <div style="background:#0b1329; border:3px solid #10b981; border-radius:8px; width:90%; max-width:680px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; font-family:ArkPixel,monospace; color:#e2e8f0;">
+        <div style="background:#1e293b; padding:12px 18px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+          <span id="wf-wizard-title" style="font-size:15px; font-weight:bold; color:#34d399;">✨ Agent Configuration Wizard</span>
+          <button onclick="document.getElementById('wf-agent-wizard-modal').style.display='none'" style="background:#334155; color:#fff; border:none; padding:3px 8px; border-radius:4px; cursor:pointer;">✕</button>
+        </div>
+        <div style="padding:16px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
+          <input type="hidden" id="wf-wiz-editing" value="false" />
+          
+          <div style="background:#131c38; border:1px solid #334155; border-radius:6px; padding:10px;">
+            <span style="font-size:11px; color:#94a3b8;">Template Preload:</span>
+            <select id="wf-wizard-template-select" onchange="applyTemplateToWizard(this.value)" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:4px;"></select>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <span style="font-size:11px; color:#94a3b8;">Unique Agent ID:</span>
+              <input id="wf-wiz-id" type="text" placeholder="e.g. agent_security_auditor" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box;" />
+            </div>
+            <div>
+              <span style="font-size:11px; color:#94a3b8;">Display Name:</span>
+              <input id="wf-wiz-name" type="text" placeholder="e.g. Casey" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box;" />
+            </div>
+          </div>
+
+          <div>
+            <span style="font-size:11px; color:#94a3b8;">Primary Role:</span>
+            <input id="wf-wiz-role" type="text" placeholder="e.g. Senior Security Auditor & Penetration Specialist" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box;" />
+          </div>
+
+          <div>
+            <span style="font-size:11px; color:#94a3b8;">Description / Responsibilities:</span>
+            <textarea id="wf-wiz-desc" rows="2" placeholder="Summary of responsibilities and scope..." style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box; resize:vertical;"></textarea>
+          </div>
+
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:11px; color:#94a3b8;">System Prompt (Layer 4 Instructions):</span>
+              <span id="wf-wiz-prompt-count" style="font-size:10px; color:#64748b;">0 chars | 0 words</span>
+            </div>
+            <textarea id="wf-wiz-prompt" oninput="updatePromptCharCount()" rows="5" placeholder="You are an autonomous AI specialist in Star Office World..." style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box; resize:vertical; font-family:monospace;"></textarea>
+          </div>
+
+          <div>
+            <span style="font-size:11px; color:#94a3b8; font-weight:bold;">Allowed Tools:</span>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:4px;">
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="workspace_write_file" /> workspace_write_file</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="workspace_read_file" /> workspace_read_file</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="workspace_list_files" /> workspace_list_files</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="web_search" /> web_search</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="web_fetch" /> web_fetch</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="send_agent_message" /> send_agent_message</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="post_office_memo" /> post_office_memo</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="delegate_to_antigravity" /> delegate_to_antigravity</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-tool-checkbox" value="check_antigravity_bridge" /> check_antigravity_bridge</label>
+            </div>
+          </div>
+
+          <div>
+            <span style="font-size:11px; color:#94a3b8; font-weight:bold;">Backend-Enforced Security Permissions:</span>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:4px;">
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-perm-checkbox" value="canModifyFiles" checked /> canModifyFiles</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-perm-checkbox" value="canDelegateTasks" checked /> canDelegateTasks</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-perm-checkbox" value="canCommunicateWithPeers" checked /> canCommunicateWithPeers</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-perm-checkbox" value="canUseAntigravity" checked /> canUseAntigravity</label>
+              <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" class="wf-perm-checkbox" value="canAccessNetwork" checked /> canAccessNetwork</label>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#1e293b; padding:10px 18px; border-top:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+          <span id="wf-wiz-status" style="font-size:12px; color:#ef4444;"></span>
+          <div style="display:flex; gap:8px;">
+            <button onclick="document.getElementById('wf-agent-wizard-modal').style.display='none'" style="background:#334155; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer;">Cancel</button>
+            <button onclick="saveAgentFromWizard()" style="background:#10b981; color:#0f172a; font-weight:bold; border:none; padding:6px 16px; border-radius:4px; cursor:pointer;">Save Configuration</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Agent Test Playground Modal -->
+    <div id="wf-playground-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:99995; justify-content:center; align-items:center; backdrop-filter:blur(3px);">
+      <div style="background:#0b1329; border:3px solid #0284c7; border-radius:8px; width:90%; max-width:640px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; font-family:ArkPixel,monospace; color:#e2e8f0;">
+        <div style="background:#1e293b; padding:12px 18px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:15px; font-weight:bold; color:#38bdf8;">🧪 Agent Test Playground Sandbox</span>
+          <button onclick="document.getElementById('wf-playground-modal').style.display='none'" style="background:#334155; color:#fff; border:none; padding:3px 8px; border-radius:4px; cursor:pointer;">✕</button>
+        </div>
+        <div style="padding:16px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
+          <div>
+            <span style="font-size:11px; color:#94a3b8;">Select Agent to Test:</span>
+            <select id="wf-play-agent" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px;"></select>
+          </div>
+          <div>
+            <span style="font-size:11px; color:#94a3b8;">Sample Test Instruction:</span>
+            <textarea id="wf-play-instruction" rows="3" placeholder="Enter instruction to test agent reasoning, prompt comprehension, or tool choices..." style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box; resize:vertical;"></textarea>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <label style="font-size:11px; display:flex; align-items:center; gap:6px; color:#94a3b8;"><input type="checkbox" id="wf-play-tools" checked /> Simulate tools in playground</label>
+            <button onclick="runPlaygroundTestUI()" style="background:#0284c7; color:#fff; font-weight:bold; border:none; padding:6px 14px; border-radius:4px; cursor:pointer;">▶ Execute Test</button>
+          </div>
+          <div>
+            <div style="font-size:11px; color:#38bdf8; font-weight:bold; margin-bottom:4px;">Execution Result & Output:</div>
+            <pre id="wf-play-output" style="background:#020617; border:1px solid #334155; border-radius:4px; padding:8px; font-size:11px; font-family:monospace; max-height:200px; overflow-y:auto; white-space:pre-wrap; color:#cbd5e1;">Ready to execute test...</pre>
+            <span id="wf-play-status" style="font-size:11px; color:#86efac; margin-top:4px; display:block;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Configuration Version History Modal -->
+    <div id="wf-history-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:99995; justify-content:center; align-items:center; backdrop-filter:blur(3px);">
+      <div style="background:#0b1329; border:3px solid #fde047; border-radius:8px; width:90%; max-width:600px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden; font-family:ArkPixel,monospace; color:#e2e8f0;">
+        <div style="background:#1e293b; padding:12px 18px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center;">
+          <span id="wf-history-agent-title" style="font-size:15px; font-weight:bold; color:#fde047;">📜 Configuration History</span>
+          <button onclick="document.getElementById('wf-history-modal').style.display='none'" style="background:#334155; color:#fff; border:none; padding:3px 8px; border-radius:4px; cursor:pointer;">✕</button>
+        </div>
+        <div style="padding:16px 20px; overflow-y:auto; flex:1;">
+          <div id="wf-history-list"></div>
+        </div>
+      </div>
+    </div>
 
     </div>
 </body>

@@ -2,6 +2,8 @@
  * Star Office World — Agent Tool Interfaces
  */
 
+import type { AgentPermission } from "../management/types.js";
+
 export interface ToolParameterSchema {
   type: "string" | "number" | "boolean" | "object" | "array";
   description: string;
@@ -25,6 +27,7 @@ export interface ToolExecutionContext {
   workspaceDir: string;
   eventBus?: (event: string, payload: unknown) => void;
   antigravityBridge?: any;
+  permissions?: AgentPermission;
 }
 
 export interface ToolExecutionResult {

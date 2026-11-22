@@ -87,21 +87,26 @@ Your responsibility is to inspect deliverables created by your teammates, read s
 
 export class AgentRegistry {
   private configPath: string;
+  private managedPath: string;
 
   constructor(dataDir: string) {
     this.configPath = path.join(dataDir, "agents.json");
+    this.managedPath = path.join(dataDir, "agents", "agents.json");
   }
 
   public getAgents(): AgentConfig[] {
-    if (fs.existsSync(this.configPath)) {
-      try {
-        const raw = fs.readFileSync(this.configPath, "utf8");
-        const loaded = JSON.parse(raw) as AgentConfig[];
-        if (Array.isArray(loaded) && loaded.length > 0) {
-          return loaded;
+    const candidates = [this.managedPath, this.configPath];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          const raw = fs.readFileSync(p, "utf8");
+          const loaded = JSON.parse(raw) as AgentConfig[];
+          if (Array.isArray(loaded) && loaded.length > 0) {
+            return loaded;
+          }
+        } catch (err) {
+          console.warn(`[agent-registry] Failed to read agents file ${p}:`, err);
         }
-      } catch (err) {
-        console.warn(`[agent-registry] Failed to read agents.json, using defaults:`, err);
       }
     }
 
@@ -114,8 +119,10 @@ export class AgentRegistry {
     try {
       fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
       fs.writeFileSync(this.configPath, JSON.stringify(agents, null, 2), "utf8");
+      fs.mkdirSync(path.dirname(this.managedPath), { recursive: true });
+      fs.writeFileSync(this.managedPath, JSON.stringify(agents, null, 2), "utf8");
     } catch (err) {
-      console.warn(`[agent-registry] Failed to save agents.json:`, err);
+      console.warn(`[agent-registry] Failed to save agents:`, err);
     }
   }
 }

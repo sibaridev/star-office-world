@@ -744,4 +744,224 @@ export function registerUIRoutes(
     const newText = String(body["newText"] || "");
     return { ok: true, diff: PromptDiffEngine.computeDiff(oldText, newText) };
   });
+
+  // ── Phase 14: Agent Management System Endpoints ─────────────────────────
+
+  fastify.get("/api/agent-management/agents", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const query = req.query as Record<string, string | undefined>;
+    const agents = agentRuntime.configManager.listAgents({
+      status: query["status"] as any,
+      role: query["role"],
+      teamId: query["teamId"],
+      activeOnly: query["activeOnly"] === "true",
+      search: query["search"],
+    });
+    return { ok: true, agents };
+  });
+
+  fastify.get("/api/agent-management/agents/:agentId", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const agent = agentRuntime.configManager.getAgent(params.agentId);
+    if (!agent) {
+      reply.code(404);
+      return { ok: false, error: `Agent '${params.agentId}' not found` };
+    }
+    return { ok: true, agent };
+  });
+
+  fastify.post("/api/agent-management/agents", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const body = (req.body as any) ?? {};
+    try {
+      const created = agentRuntime.registerNewAgent(body, "human_owner");
+      reply.code(201);
+      return { ok: true, agent: created };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.put("/api/agent-management/agents/:agentId", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const body = (req.body as any) ?? {};
+    try {
+      const updated = agentRuntime.updateAgentConfig(
+        params.agentId,
+        body,
+        body["author"] || "human_owner",
+        body["reason"] || "Updated via Agent Management"
+      );
+      return { ok: true, agent: updated };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.post("/api/agent-management/agents/:agentId/clone", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const body = (req.body as any) ?? {};
+    const newAgentId = String(body["newAgentId"] || "");
+    const newName = body["newName"] ? String(body["newName"]) : undefined;
+
+    if (!newAgentId) {
+      reply.code(400);
+      return { ok: false, error: "newAgentId is required" };
+    }
+
+    try {
+      const cloned = agentRuntime.configManager.cloneAgent(params.agentId, newAgentId, newName);
+      agentRuntime.instantiateAgent(cloned);
+      reply.code(201);
+      return { ok: true, agent: cloned };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.post("/api/agent-management/agents/:agentId/status", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const body = (req.body as any) ?? {};
+    const status = body["status"];
+    const reason = body["reason"] || "Status changed by owner";
+
+    if (!status) {
+      reply.code(400);
+      return { ok: false, error: "status is required" };
+    }
+
+    try {
+      const updated = agentRuntime.setAgentLifecycleStatus(params.agentId, status, "human_owner", reason);
+      return { ok: true, agent: updated };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.delete("/api/agent-management/agents/:agentId", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const body = (req.body as any) ?? {};
+    const query = req.query as Record<string, string | undefined>;
+    const force = body["force"] === true || query["force"] === "true";
+
+    try {
+      agentRuntime.removeAgent(params.agentId, force);
+      return { ok: true, message: `Agent '${params.agentId}' deleted.` };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.get("/api/agent-management/agents/:agentId/history", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const versions = agentRuntime.configManager.getHistory(params.agentId);
+    return { ok: true, versions };
+  });
+
+  fastify.post("/api/agent-management/agents/:agentId/rollback", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const body = (req.body as any) ?? {};
+    const targetVersionId = String(body["targetVersionId"] || "");
+    const reason = String(body["reason"] || "Rollback via Agent Management");
+
+    if (!targetVersionId) {
+      reply.code(400);
+      return { ok: false, error: "targetVersionId is required" };
+    }
+
+    try {
+      const restored = agentRuntime.configManager.rollback(params.agentId, targetVersionId, reason);
+      const instance = agentRuntime.getAgent(params.agentId);
+      if (instance) {
+        instance.updateConfig(restored);
+      }
+      return { ok: true, agent: restored };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.get("/api/agent-management/templates", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const templates = agentRuntime.configManager.listTemplates();
+    return { ok: true, templates };
+  });
+
+  fastify.post("/api/agent-management/templates", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const body = (req.body as any) ?? {};
+    try {
+      const saved = agentRuntime.configManager.saveCustomTemplate(body);
+      reply.code(201);
+      return { ok: true, template: saved };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.post("/api/agent-management/test", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const body = (req.body as any) ?? {};
+    if (!body.testInstruction) {
+      reply.code(400);
+      return { ok: false, error: "testInstruction is required" };
+    }
+    try {
+      const result = await agentRuntime.testPlayground.runTest(body);
+      return { ok: true, result };
+    } catch (err: unknown) {
+      reply.code(500);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 }

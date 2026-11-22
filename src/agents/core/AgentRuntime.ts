@@ -1,6 +1,7 @@
 /**
  * Star Office World — Autonomous Agent Runtime Supervisor
- * Manages all agent instances, dispatching tasks, and syncing with Star Office World.
+ * Manages all agent instances, dispatching tasks, configuration lifecycle,
+ * and syncing with Star Office World.
  */
 
 import path from "node:path";
@@ -17,6 +18,9 @@ import type { OfficeTask } from "../tasks/TaskTypes.js";
 import { AntigravityBridge } from "../../integrations/antigravity/bridge/AntigravityBridge.js";
 import { PromptRegistry } from "../prompts/PromptRegistry.js";
 import { PromptProposalManager } from "../prompts/PromptProposalManager.js";
+import { AgentConfigManager } from "../management/AgentConfigManager.js";
+import { AgentTestPlayground } from "../management/AgentTestPlayground.js";
+import type { FullAgentConfig, AgentLifecycleStatus } from "../management/types.js";
 
 export interface AgentRuntimeDeps {
   officeState: OfficeWorldState;
@@ -34,6 +38,8 @@ export class AgentRuntime {
   public readonly antigravityBridge: AntigravityBridge;
   public readonly promptRegistry: PromptRegistry;
   public readonly proposalManager: PromptProposalManager;
+  public readonly configManager: AgentConfigManager;
+  public readonly testPlayground: AgentTestPlayground;
   private agents = new Map<string, AgentInstance>();
   private dispatchTimer: ReturnType<typeof setInterval> | null = null;
   private workspaceDir: string;
@@ -45,6 +51,13 @@ export class AgentRuntime {
     this.agentRegistry = new AgentRegistry(deps.dataDir);
 
     this.promptRegistry = new PromptRegistry(deps.dataDir);
+    this.configManager = new AgentConfigManager(deps.dataDir, this.promptRegistry);
+    this.testPlayground = new AgentTestPlayground({
+      aiProvider: deps.aiProvider,
+      toolRegistry: this.toolRegistry,
+      configManager: this.configManager,
+    });
+
     this.proposalManager = new PromptProposalManager({
       officeState: deps.officeState,
       sse: deps.sse,
@@ -70,39 +83,113 @@ export class AgentRuntime {
   }
 
   private initializeAgents(): void {
-    const configs = this.agentRegistry.getAgents();
+    const configs = this.configManager.listAgents();
 
     for (const cfg of configs) {
-      // 1. Ensure registered in Star Office World state
-      if (!this.deps.officeState.agents[cfg.agentId]) {
-        const agent = addAgent(
-          this.deps.officeState,
-          cfg.agentId,
-          cfg.name,
-          cfg.avatar,
-          "idle",
-          cfg.role,
-          cfg.isMain
-        );
-        this.deps.sse.broadcast("agent_join", agent);
-      }
-
-      // 2. Instantiate runtime agent
-      const instance = new AgentInstance({
-        config: cfg,
-        aiProvider: this.deps.aiProvider,
-        toolRegistry: this.toolRegistry,
-        taskManager: this.taskManager,
-        dataDir: this.deps.dataDir,
-        workspaceDir: this.workspaceDir,
-        eventBus: (event, payload) => this.handleAgentEvent(event, payload),
-        antigravityBridge: this.antigravityBridge,
-        promptRegistry: this.promptRegistry,
-        proposalManager: this.proposalManager,
-      });
-
-      this.agents.set(cfg.agentId, instance);
+      this.instantiateAgent(cfg);
     }
+  }
+
+  public instantiateAgent(cfg: FullAgentConfig): AgentInstance {
+    // 1. Ensure registered in Star Office World state
+    if (!this.deps.officeState.agents[cfg.agentId]) {
+      const agent = addAgent(
+        this.deps.officeState,
+        cfg.agentId,
+        cfg.name,
+        cfg.avatar,
+        cfg.lifecycleStatus === "PAUSED" ? "paused" : "idle",
+        cfg.role,
+        cfg.isMain
+      );
+      this.deps.sse.broadcast("agent_join", agent);
+    }
+
+    // 2. Instantiate runtime agent
+    const instance = new AgentInstance({
+      config: cfg,
+      aiProvider: this.deps.aiProvider,
+      toolRegistry: this.toolRegistry,
+      taskManager: this.taskManager,
+      dataDir: this.deps.dataDir,
+      workspaceDir: this.workspaceDir,
+      eventBus: (event, payload) => this.handleAgentEvent(event, payload),
+      antigravityBridge: this.antigravityBridge,
+      promptRegistry: this.promptRegistry,
+      proposalManager: this.proposalManager,
+    });
+
+    if (cfg.lifecycleStatus === "PAUSED") {
+      instance.lifecycle.transition("PAUSED", "Initial state is PAUSED");
+    }
+
+    this.agents.set(cfg.agentId, instance);
+    return instance;
+  }
+
+  public registerNewAgent(
+    config: Omit<FullAgentConfig, "configVersion" | "createdAt" | "updatedAt">,
+    author = "human_owner"
+  ): FullAgentConfig {
+    const full = this.configManager.createAgent(config, author);
+    this.instantiateAgent(full);
+    return full;
+  }
+
+  public updateAgentConfig(
+    agentId: string,
+    updates: Partial<Omit<FullAgentConfig, "agentId" | "configVersion" | "createdAt" | "updatedAt">>,
+    author = "human_owner",
+    reason = "Configuration updated"
+  ): FullAgentConfig {
+    const updated = this.configManager.updateAgent(agentId, updates, author, reason);
+    const instance = this.agents.get(agentId);
+    if (instance) {
+      instance.updateConfig(updated);
+    }
+
+    // Sync officeState
+    const officeAgent = this.deps.officeState.agents[agentId];
+    if (officeAgent) {
+      if (updates.name) officeAgent.alias = updates.name;
+      if (updates.avatar) officeAgent.avatar = updates.avatar;
+      this.deps.sse.broadcast("agent_update", officeAgent);
+    }
+
+    return updated;
+  }
+
+  public setAgentLifecycleStatus(
+    agentId: string,
+    status: AgentLifecycleStatus,
+    author = "human_owner",
+    reason = "Lifecycle status changed"
+  ): FullAgentConfig {
+    const updated = this.configManager.setStatus(agentId, status, author, reason);
+    const instance = this.agents.get(agentId);
+    if (instance) {
+      instance.updateConfig(updated);
+      if (status === "PAUSED") {
+        instance.lifecycle.transition("PAUSED", reason);
+        this.deps.sse.broadcast("agent_update", { agentId, state: "paused", detail: reason });
+      } else if (status === "ACTIVE" && instance.status === "PAUSED") {
+        instance.lifecycle.transition("IDLE", "Agent resumed");
+        this.deps.sse.broadcast("agent_update", { agentId, state: "idle", detail: "Active at office desk" });
+      }
+    }
+    return updated;
+  }
+
+  public removeAgent(agentId: string, force = false): void {
+    const instance = this.agents.get(agentId);
+    if (instance?.activeTask && !force) {
+      throw new Error(`Agent '${agentId}' is actively executing task '${instance.activeTask.id}' and cannot be deleted.`);
+    }
+
+    this.configManager.deleteAgent(agentId, force);
+    this.agents.delete(agentId);
+    delete this.deps.officeState.agents[agentId];
+    this.deps.sse.broadcast("state", this.deps.officeState);
   }
 
   private handleAgentEvent(event: string, payload: unknown): void {
@@ -162,6 +249,13 @@ export class AgentRuntime {
     }
   }
 
+  private isAgentAvailableForTask(instance: AgentInstance): boolean {
+    if (instance.status !== "IDLE") return false;
+    const cfg = this.configManager.getAgent(instance.agentId);
+    if (!cfg) return true;
+    return cfg.lifecycleStatus === "ACTIVE";
+  }
+
   private dispatchPendingTasks(): void {
     const pendingTasks = this.taskManager.listTasks({ status: "PENDING" });
     if (pendingTasks.length === 0) return;
@@ -171,18 +265,18 @@ export class AgentRuntime {
 
       if (task.assignedAgentId) {
         const designated = this.agents.get(task.assignedAgentId);
-        if (designated && designated.status === "IDLE") {
+        if (designated && this.isAgentAvailableForTask(designated)) {
           targetAgent = designated;
         }
       } else {
-        // Pick coordinator first for unassigned tasks
+        // Pick coordinator first for unassigned tasks if available
         const coordinator = this.agents.get("agent_coordinator");
-        if (coordinator && coordinator.status === "IDLE") {
+        if (coordinator && this.isAgentAvailableForTask(coordinator)) {
           targetAgent = coordinator;
         } else {
-          // Find any idle agent
+          // Find any idle and active agent
           for (const agent of this.agents.values()) {
-            if (agent.status === "IDLE") {
+            if (this.isAgentAvailableForTask(agent)) {
               targetAgent = agent;
               break;
             }

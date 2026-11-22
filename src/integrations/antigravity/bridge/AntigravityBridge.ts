@@ -409,13 +409,12 @@ export class AntigravityBridge {
       10
     );
 
-    const promptArg = `--print=${task.engineeringPrompt}`;
-    const args = ["--output-format", "stream-json", "--add-dir", ws.path, promptArg];
+    const args = ["--output-format", "stream-json", "--add-dir", ws.path, "--print", task.engineeringPrompt];
 
     try {
       const child = spawn(agyPath, args, {
         cwd: ws.path,
-        shell: process.platform === "win32",
+        shell: false,
         windowsHide: true,
       });
 
@@ -562,10 +561,9 @@ export class AntigravityBridge {
     const connectionId = `agy_conn_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
     return new Promise<E2ETestResult>((resolve) => {
-      const promptArg = `--print=${testPrompt}`;
-      const child = spawn(agyPath, ["--output-format", "json", "--add-dir", ws.path, promptArg], {
+      const child = spawn(agyPath, ["--output-format", "json", "--add-dir", ws.path, "--print", testPrompt], {
         cwd: ws.path,
-        shell: process.platform === "win32",
+        shell: false,
         windowsHide: true,
       });
 

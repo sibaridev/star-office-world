@@ -225,7 +225,7 @@ test("6. Built-in templates and custom template creation", () => {
   assert.equal(custom.isBuiltIn, false);
 
   const reloaded = mgr.listTemplates();
-  assert.equal(reloaded.length, 12, "Should include newly saved custom template");
+  assert.equal(reloaded.length, 13, "Should include newly saved custom template");
 
   fs.rmSync(testDir, { recursive: true, force: true });
 });

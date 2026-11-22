@@ -28,6 +28,9 @@ import {
   getAntigravityTaskDetailsTool,
   cancelAntigravityTaskTool,
   inspectAntigravityWorkspaceTool,
+  listAntigravityWorkspaceFilesTool,
+  readAntigravityWorkspaceFileTool,
+  getAntigravityWorkspaceGitStatusTool,
 } from "./builtins/AntigravityTools.js";
 
 export class ToolRegistry {
@@ -52,6 +55,9 @@ export class ToolRegistry {
     this.register(getAntigravityTaskDetailsTool);
     this.register(cancelAntigravityTaskTool);
     this.register(inspectAntigravityWorkspaceTool);
+    this.register(listAntigravityWorkspaceFilesTool);
+    this.register(readAntigravityWorkspaceFileTool);
+    this.register(getAntigravityWorkspaceGitStatusTool);
   }
 
   public register(tool: ToolDefinition): void {

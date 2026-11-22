@@ -327,3 +327,137 @@ export const inspectAntigravityWorkspaceTool: ToolDefinition = {
     }
   },
 };
+
+export const listAntigravityWorkspaceFilesTool: ToolDefinition = {
+  name: "list_antigravity_workspace_files",
+  description: "List real files and directories in an authorized workspace repository (e.g. package manifests, source code, configs).",
+  riskLevel: "low",
+  parameters: {
+    workspaceId: {
+      type: "string",
+      description: "Workspace ID to list files from (defaults to 'default_workspace')",
+      required: false,
+    },
+    subDir: {
+      type: "string",
+      description: "Relative subdirectory path to list (e.g. 'src' or '' for root)",
+      required: false,
+    },
+  },
+  async execute(args, context) {
+    if (!context.antigravityBridge) {
+      return { success: false, output: "", error: "Antigravity Bridge is not configured on this server." };
+    }
+    const wsId = String(args["workspaceId"] || context.workspaceId || "default_workspace").trim();
+    const subDir = String(args["subDir"] || "");
+    try {
+      const files = context.antigravityBridge.workspaces.listFiles(wsId, subDir);
+      const output = [
+        `=== Workspace Files: ${wsId}${subDir ? ` (${subDir})` : ""} ===`,
+        `Total entries: ${files.length}`,
+        "",
+        ...files.map((f: string) => `- ${f}`),
+      ].join("\n");
+      return { success: true, output, data: { workspaceId: wsId, files } };
+    } catch (err: unknown) {
+      return { success: false, output: "", error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const readAntigravityWorkspaceFileTool: ToolDefinition = {
+  name: "read_antigravity_workspace_file",
+  description: "Read the real content of any authorized file in the workspace repository (e.g., package.json, src files, configs).",
+  riskLevel: "low",
+  parameters: {
+    filePath: {
+      type: "string",
+      description: "Relative path inside the authorized workspace (e.g., 'package.json')",
+      required: true,
+    },
+    workspaceId: {
+      type: "string",
+      description: "Workspace ID (defaults to 'default_workspace')",
+      required: false,
+    },
+  },
+  async execute(args, context) {
+    if (!context.antigravityBridge) {
+      return { success: false, output: "", error: "Antigravity Bridge is not configured on this server." };
+    }
+    const wsId = String(args["workspaceId"] || context.workspaceId || "default_workspace").trim();
+    const filePath = String(args["filePath"] || "").trim();
+    if (!filePath) {
+      return { success: false, output: "", error: "filePath is required." };
+    }
+
+    try {
+      const content = context.antigravityBridge.workspaces.readFile(wsId, filePath);
+      return {
+        success: true,
+        output: `=== File Content: ${filePath} (${wsId}) ===\n${content}`,
+        data: { workspaceId: wsId, filePath, length: content.length },
+      };
+    } catch (err: unknown) {
+      return { success: false, output: "", error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};
+
+export const getAntigravityWorkspaceGitStatusTool: ToolDefinition = {
+  name: "get_antigravity_workspace_git_status",
+  description: "Inspect the real Git status, active branch, HEAD commit, uncommitted changes, and working tree for an authorized workspace.",
+  riskLevel: "low",
+  parameters: {
+    workspaceId: {
+      type: "string",
+      description: "Workspace ID to check (defaults to 'default_workspace')",
+      required: false,
+    },
+  },
+  async execute(args, context) {
+    if (!context.antigravityBridge) {
+      return { success: false, output: "", error: "Antigravity Bridge is not configured on this server." };
+    }
+    const wsId = String(args["workspaceId"] || context.workspaceId || "default_workspace").trim();
+    const ws = context.antigravityBridge.workspaces.getWorkspace(wsId);
+    if (!ws) {
+      return { success: false, output: "", error: `Workspace '${wsId}' not found.` };
+    }
+
+    try {
+      const statusPorcelain = context.antigravityBridge.workspaces.getGitStatus(wsId);
+      const diff = context.antigravityBridge.workspaces.getGitDiff(wsId);
+      const inspection = context.antigravityBridge.workspaces.inspectWorkspace(wsId);
+
+      const output = [
+        `=== Git Status: ${ws.name} (${wsId}) ===`,
+        `Repository Root: ${ws.path}`,
+        `Is Git Repo: ${inspection.gitInfo?.isRepo ? "Yes" : "No"}`,
+        `Current Branch: ${inspection.gitInfo?.branch || "Unknown"}`,
+        `HEAD Commit: ${inspection.gitInfo?.headCommit || "N/A"}`,
+        `Working Tree Clean: ${statusPorcelain.trim().length === 0 ? "Yes (no uncommitted changes)" : "No (has changes)"}`,
+        "",
+        `--- Uncommitted Changes (git status --porcelain) ---`,
+        statusPorcelain.trim() || "(clean working directory)",
+        "",
+        `--- Uncommitted Diff Summary ---`,
+        diff.trim() ? `${diff.slice(0, 1000)}${diff.length > 1000 ? "\n...[truncated]" : ""}` : "(no diff)",
+      ].join("\n");
+
+      return {
+        success: true,
+        output,
+        data: {
+          workspaceId: wsId,
+          branch: inspection.gitInfo?.branch,
+          head: inspection.gitInfo?.headCommit,
+          isClean: statusPorcelain.trim().length === 0,
+          changes: statusPorcelain.split("\n").filter(Boolean),
+        },
+      };
+    } catch (err: unknown) {
+      return { success: false, output: "", error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+};

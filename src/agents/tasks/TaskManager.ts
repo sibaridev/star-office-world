@@ -1,50 +1,65 @@
 /**
  * Star Office World — Task Manager
- * Handles task queues, dependency resolution, execution status, and subtasks.
+ * Coordinates task queues, dependencies, step execution, verifiable completion,
+ * and parent delegation result validation.
  */
 
 import { TaskPersistence } from "./TaskPersistence.js";
-import type { OfficeTask, TaskStatus, TaskStep } from "./TaskTypes.js";
+import type {
+  OfficeTask,
+  TaskStatus,
+  TaskStep,
+  CreateTaskOptions,
+  TaskFilter,
+  ToolExecutionProvenance,
+} from "./TaskTypes.js";
+import { CompletionVerifier } from "./CompletionVerifier.js";
 
 export class TaskManager {
-  private tasks = new Map<string, OfficeTask>();
   private persistence: TaskPersistence;
+  private tasks = new Map<string, OfficeTask>();
   private onTaskUpdateCallback?: (task: OfficeTask) => void;
 
-  constructor(dataDir: string, onTaskUpdate?: (task: OfficeTask) => void) {
+  constructor(dataDir: string, onUpdate?: (task: OfficeTask) => void) {
     this.persistence = new TaskPersistence(dataDir);
-    this.onTaskUpdateCallback = onTaskUpdate;
-    this.loadAndRecover();
+    this.onTaskUpdateCallback = onUpdate;
+    this.loadPersistedTasks();
   }
 
-  private loadAndRecover(): void {
-    // Recover any tasks interrupted from previous session
-    this.persistence.recoverInterruptedTasks();
-    const existing = this.persistence.listTasks();
-    for (const t of existing) {
-      this.tasks.set(t.id, t);
+  private loadPersistedTasks(): void {
+    const list = this.persistence.listTasks();
+    for (const task of list) {
+      task.steps = task.steps || [];
+      task.provenance = task.provenance || [];
+      // If a task was left IN_PROGRESS or RUNNING when the server died, mark it INTERRUPTED
+      if (task.status === "IN_PROGRESS" || task.status === "RUNNING") {
+        task.status = "INTERRUPTED";
+        task.error = "Application restarted while task was in progress";
+        task.updatedAt = Date.now();
+        this.persistence.saveTask(task);
+      }
+      this.tasks.set(task.id, task);
     }
   }
 
-  public createTask(opts: {
-    title: string;
-    description: string;
-    assignedAgentId?: string;
-    priority?: "low" | "medium" | "high";
-    parentTaskId?: string;
-    dependencies?: string[];
-  }): OfficeTask {
+  public createTask(opts: CreateTaskOptions): OfficeTask {
     const id = `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const task: OfficeTask = {
       id,
       title: opts.title,
       description: opts.description,
       assignedAgentId: opts.assignedAgentId,
-      status: (opts.dependencies && opts.dependencies.length > 0) ? "WAITING_DEPENDENCY" : "PENDING",
+      status: opts.dependencies && opts.dependencies.length > 0 ? "WAITING_DEPENDENCY" : "PENDING",
       priority: opts.priority ?? "medium",
       parentTaskId: opts.parentTaskId,
       dependencies: opts.dependencies ?? [],
       steps: [],
+      provenance: [],
+      workspaceId: opts.workspaceId,
+      workspacePath: opts.workspacePath,
+      acceptanceCriteria: opts.acceptanceCriteria,
+      requiredEvidence: opts.requiredEvidence,
+      requiredTools: opts.requiredTools,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -60,7 +75,7 @@ export class TaskManager {
     return this.tasks.get(id);
   }
 
-  public listTasks(filter?: { status?: TaskStatus; assignedAgentId?: string; parentTaskId?: string }): OfficeTask[] {
+  public listTasks(filter?: TaskFilter): OfficeTask[] {
     let list = Array.from(this.tasks.values());
 
     if (filter?.status) {
@@ -72,13 +87,13 @@ export class TaskManager {
     if (filter?.parentTaskId !== undefined) {
       list = list.filter((t) => t.parentTaskId === filter.parentTaskId);
     }
+    if (filter?.workspaceId) {
+      list = list.filter((t) => t.workspaceId === filter.workspaceId);
+    }
 
     return list.sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  /**
-   * Checks if all dependencies of a task have successfully COMPLETED.
-   */
   public areDependenciesMet(taskId: string): boolean {
     const task = this.tasks.get(taskId);
     if (!task) return false;
@@ -93,9 +108,6 @@ export class TaskManager {
     return true;
   }
 
-  /**
-   * Check all waiting tasks to see if their dependencies are now satisfied.
-   */
   public resolveDependencies(): void {
     for (const task of this.tasks.values()) {
       if (task.status === "WAITING_DEPENDENCY" && this.areDependenciesMet(task.id)) {
@@ -152,22 +164,72 @@ export class TaskManager {
     return newStep;
   }
 
+  public addProvenanceRecord(taskId: string, record: ToolExecutionProvenance): void {
+    const task = this.tasks.get(taskId);
+    if (!task) return;
+
+    task.provenance = task.provenance || [];
+    task.provenance.push(record);
+    task.updatedAt = Date.now();
+    this.persistence.saveTask(task);
+    this.notifyUpdate(task);
+  }
+
   public completeTask(taskId: string, result: string): OfficeTask | null {
     const task = this.tasks.get(taskId);
     if (!task) return null;
 
+    // Verify completion against evidence and check for natural language refusals/excuses
+    const verify = CompletionVerifier.verifyCompletion(task, result, task.provenance);
+
+    if (!verify.canComplete) {
+      task.status = verify.status; // BLOCKED or PARTIALLY_COMPLETED
+      task.result = result;
+      task.blockReason = verify.blockReason;
+      task.incompleteRequirements = verify.incompleteRequirements;
+      task.updatedAt = Date.now();
+      this.persistence.saveTask(task);
+      this.persistence.recordRunLog(taskId, `Cannot complete: ${verify.blockReason}`);
+      this.notifyUpdate(task);
+
+      // Propagate blocker to parent if applicable
+      if (task.parentTaskId) {
+        this.checkParentCompletion(task.parentTaskId);
+      }
+      return task;
+    }
+
     task.status = "COMPLETED";
     task.result = result;
+    task.blockReason = undefined;
+    task.incompleteRequirements = undefined;
     task.completedAt = Date.now();
     task.updatedAt = Date.now();
     this.persistence.saveTask(task);
-    this.persistence.recordRunLog(taskId, `Completed successfully.`);
+    this.persistence.recordRunLog(taskId, `Completed successfully with verified evidence.`);
     this.notifyUpdate(task);
 
     // After completing, unlock any downstream dependencies
     this.resolveDependencies();
     this.checkParentCompletion(task.parentTaskId);
 
+    return task;
+  }
+
+  public blockTask(taskId: string, reason: string): OfficeTask | null {
+    const task = this.tasks.get(taskId);
+    if (!task) return null;
+
+    task.status = "BLOCKED";
+    task.blockReason = reason;
+    task.updatedAt = Date.now();
+    this.persistence.saveTask(task);
+    this.persistence.recordRunLog(taskId, `Blocked: ${reason}`);
+    this.notifyUpdate(task);
+
+    if (task.parentTaskId) {
+      this.checkParentCompletion(task.parentTaskId);
+    }
     return task;
   }
 
@@ -191,18 +253,51 @@ export class TaskManager {
     return task;
   }
 
+  /**
+   * Parent validates child delegation results independently rather than blindly trusting natural language.
+   */
   private checkParentCompletion(parentTaskId?: string): void {
     if (!parentTaskId) return;
     const parent = this.tasks.get(parentTaskId);
     if (!parent || parent.status === "COMPLETED" || parent.status === "FAILED") return;
 
-    // Check all children
     const children = this.listTasks({ parentTaskId });
-    const allCompleted = children.length > 0 && children.every((c) => c.status === "COMPLETED");
+    if (children.length === 0) return;
+
+    // 1. Check if any child is BLOCKED
+    const blockedChild = children.find((c) => c.status === "BLOCKED");
+    if (blockedChild) {
+      parent.status = "BLOCKED";
+      parent.blockReason = `Delegated subtask '${blockedChild.title}' is BLOCKED: ${blockedChild.blockReason || "Missing capability"}`;
+      parent.updatedAt = Date.now();
+      this.persistence.saveTask(parent);
+      this.persistence.recordRunLog(parent.id, parent.blockReason);
+      this.notifyUpdate(parent);
+      return;
+    }
+
+    // 2. Check if any child is PARTIALLY_COMPLETED
+    const partialChild = children.find((c) => c.status === "PARTIALLY_COMPLETED");
+    if (partialChild) {
+      parent.status = "PARTIALLY_COMPLETED";
+      parent.incompleteRequirements = partialChild.incompleteRequirements;
+      parent.blockReason = `Subtask '${partialChild.title}' only partially completed.`;
+      parent.updatedAt = Date.now();
+      this.persistence.saveTask(parent);
+      this.notifyUpdate(parent);
+      return;
+    }
+
+    // 3. Verify all children are truly COMPLETED with valid execution results
+    const allCompleted = children.every((c) => {
+      if (c.status !== "COMPLETED") return false;
+      const val = CompletionVerifier.validateChildDelegationResult(c, c.provenance);
+      return val.valid;
+    });
 
     if (allCompleted) {
       const summary = children.map((c) => `[${c.title}]: ${c.result || "(done)"}`).join("\n\n");
-      this.completeTask(parentTaskId, `All ${children.length} subtasks completed:\n\n${summary}`);
+      this.completeTask(parentTaskId, `All ${children.length} subtasks completed with verified evidence:\n\n${summary}`);
     }
   }
 

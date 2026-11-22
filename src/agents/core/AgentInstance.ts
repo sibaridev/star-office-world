@@ -12,6 +12,8 @@ import type { TaskManager } from "../tasks/TaskManager.js";
 import type { PromptRegistry } from "../prompts/PromptRegistry.js";
 import type { PromptProposalManager } from "../prompts/PromptProposalManager.js";
 import type { EffectiveSystemPrompt } from "../prompts/types.js";
+import { ToolExecutionGateway } from "../tools/ToolExecutionGateway.js";
+import { AgentExecutionContext } from "./AgentExecutionContext.js";
 
 export interface AgentActionDecision {
   action: "tool" | "delegate" | "complete" | "fail" | "wait";
@@ -30,6 +32,7 @@ export class AgentInstance {
   public readonly lifecycle: AgentLifecycle;
   private aiProvider: AIProvider;
   private toolRegistry: ToolRegistry;
+  private toolGateway: ToolExecutionGateway;
   private taskManager: TaskManager;
   private dataDir: string;
   private workspaceDir: string;
@@ -46,6 +49,7 @@ export class AgentInstance {
     config: AgentConfig;
     aiProvider: AIProvider;
     toolRegistry: ToolRegistry;
+    toolGateway?: ToolExecutionGateway;
     taskManager: TaskManager;
     dataDir: string;
     workspaceDir: string;
@@ -57,6 +61,7 @@ export class AgentInstance {
     this.config = opts.config;
     this.aiProvider = opts.aiProvider;
     this.toolRegistry = opts.toolRegistry;
+    this.toolGateway = opts.toolGateway || new ToolExecutionGateway(opts.toolRegistry, opts.dataDir);
     this.taskManager = opts.taskManager;
     this.dataDir = opts.dataDir;
     this.workspaceDir = opts.workspaceDir;
@@ -127,6 +132,42 @@ export class AgentInstance {
     const effectiveMaxIterations = maxIterations ?? this.config.execution?.maxIterations ?? 8;
     this.taskManager.startTask(task.id);
 
+    // Resolve target workspace
+    const effectiveWorkspaceId = task.workspaceId || "default_workspace";
+    let effectiveWorkspacePath = task.workspacePath;
+    if (!effectiveWorkspacePath && this.antigravityBridge?.workspaces) {
+      const ws = this.antigravityBridge.workspaces.get(effectiveWorkspaceId);
+      if (ws) {
+        effectiveWorkspacePath = ws.rootPath;
+      }
+    }
+
+    const executionContext = new AgentExecutionContext({
+      agentId: this.agentId,
+      agentName: this.name,
+      taskId: task.id,
+      parentTaskId: task.parentTaskId,
+      workspaceId: effectiveWorkspaceId,
+      workspacePath: effectiveWorkspacePath,
+      allowedTools: this.config.allowedTools,
+      permissions: this.config.permissions || {
+        canModifyFiles: true,
+        canDelegateTasks: true,
+        canCommunicateWithPeers: true,
+        canUseAntigravity: true,
+        canExecuteTests: true,
+        canAccessNetwork: true,
+        requiresApprovalForSensitiveOps: false,
+      },
+      acceptanceCriteria: task.acceptanceCriteria,
+      requiredEvidence: task.requiredEvidence,
+      requiredTools: task.requiredTools,
+      executionLimits: this.config.execution,
+      dataDir: this.dataDir,
+      scratchWorkspaceDir: this.workspaceDir,
+      antigravityBridge: this.antigravityBridge,
+    });
+
     try {
       let iteration = 0;
       let completed = false;
@@ -154,21 +195,13 @@ export class AgentInstance {
           this.lifecycle.transition("EXECUTING", `Tool ${decision.tool}`);
           this.emitStateChange(`Using ${decision.tool}...`);
 
-          const toolResult = await this.toolRegistry.executeTool(
+          const { result: toolResult, provenance } = await this.toolGateway.execute(
             decision.tool,
             decision.args ?? {},
-            {
-              agentId: this.agentId,
-              agentName: this.name,
-              taskId: task.id,
-              dataDir: this.dataDir,
-              workspaceDir: this.workspaceDir,
-              eventBus: this.eventBus,
-              antigravityBridge: this.antigravityBridge,
-              permissions: this.config.permissions,
-            },
-            this.config.allowedTools
+            executionContext
           );
+
+          this.taskManager.addProvenanceRecord(task.id, provenance);
 
           this.taskManager.addStep(task.id, {
             description: `Executed tool '${decision.tool}'`,
@@ -193,6 +226,11 @@ export class AgentInstance {
             description: decision.subtaskDescription || decision.subtaskTitle,
             assignedAgentId: decision.delegateToAgentId,
             parentTaskId: task.id,
+            workspaceId: effectiveWorkspaceId,
+            workspacePath: effectiveWorkspacePath,
+            acceptanceCriteria: task.acceptanceCriteria,
+            requiredEvidence: task.requiredEvidence,
+            requiredTools: task.requiredTools,
           });
 
           this.taskManager.addStep(task.id, {
@@ -205,11 +243,17 @@ export class AgentInstance {
           completed = true; // Wait for dependency resolution
         } else if (decision.action === "complete") {
           const finalResult = decision.result || aiResponse.text;
-          this.lifecycle.transition("COMPLETED", "Task completed");
-          this.emitStateChange(`Completed task: ${task.title}`);
-
-          this.taskManager.completeTask(task.id, finalResult);
-          completed = true;
+          const compRes = this.taskManager.completeTask(task.id, finalResult);
+          if (compRes && compRes.status !== "COMPLETED") {
+            const reason = compRes.blockReason || "Completion rejected by verification engine";
+            this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
+            this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
+            completed = true;
+          } else {
+            this.lifecycle.transition("COMPLETED", "Task completed");
+            this.emitStateChange(`Completed task: ${task.title}`);
+            completed = true;
+          }
         } else if (decision.action === "fail") {
           const errMsg = decision.error || "Agent reported failure";
           this.lifecycle.transition("ERROR", errMsg);
@@ -217,18 +261,34 @@ export class AgentInstance {
           this.taskManager.failTask(task.id, errMsg);
           completed = true;
         } else {
-          // If no structured command is found, treat raw generation as task completion result
-          this.lifecycle.transition("COMPLETED", "Completed output");
-          this.emitStateChange(`Finished: ${task.title}`);
-          this.taskManager.completeTask(task.id, aiResponse.text);
-          completed = true;
+          // If no structured command is found, verify if raw text constitutes valid completion
+          const compRes = this.taskManager.completeTask(task.id, aiResponse.text);
+          if (compRes && compRes.status !== "COMPLETED") {
+            const reason = compRes.blockReason || "Completion rejected by verification engine";
+            this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
+            this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
+            completed = true;
+          } else {
+            this.lifecycle.transition("COMPLETED", "Completed output");
+            this.emitStateChange(`Finished: ${task.title}`);
+            completed = true;
+          }
         }
       }
 
       if (!completed && iteration >= effectiveMaxIterations) {
-        this.lifecycle.transition("COMPLETED", "Reached max iterations");
-        this.emitStateChange(`Completed (iteration limit reached)`);
-        this.taskManager.completeTask(task.id, `Task reached maximum permitted turns (${effectiveMaxIterations}). Intermediate findings preserved.`);
+        const compRes = this.taskManager.completeTask(
+          task.id,
+          `Task reached maximum permitted turns (${effectiveMaxIterations}). Intermediate findings preserved.`
+        );
+        if (compRes && compRes.status !== "COMPLETED") {
+          const reason = compRes.blockReason || "Turn limit reached but completion criteria unmet";
+          this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
+          this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
+        } else {
+          this.lifecycle.transition("COMPLETED", "Reached max iterations");
+          this.emitStateChange(`Completed (iteration limit reached)`);
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -283,10 +343,15 @@ To delegate a subtask (if you are the Coordinator):
 }
 \`\`\`
 
-CRITICAL INSTRUCTIONS:
-- You MUST ALWAYS respond with a JSON decision block. Do NOT reply with conversational chat or plain prose.
-- When asked about Antigravity access, connection status, or software engineering tasks: DO NOT guess or assume Antigravity is absent! Call the \`check_antigravity_bridge\` tool first or delegate to \`agent_nova\`.
-- Never claim you lack access to tools that are listed in AVAILABLE TOOLS.
+CRITICAL EXECUTION INTEGRITY RULES:
+- You MUST ALWAYS respond with a JSON decision block. Do NOT reply with conversational chat, apologies, or plain prose.
+- When asked about Antigravity access, connection status, repository analysis, or software engineering tasks: DO NOT guess, DO NOT assume tools are absent, and DO NOT instruct the user to run manual shell commands!
+- You have direct tools to inspect authorized workspaces:
+  * 'get_antigravity_workspace_git_status' to inspect real git status, active branch, and modified files.
+  * 'list_antigravity_workspace_files' to inspect files in the authorized repository.
+  * 'read_antigravity_workspace_file' to read file contents from the repository.
+  * 'check_antigravity_bridge' to verify bridge status.
+- Never output excuses such as "I do not have access to..." or "Run these commands manually...". If a task requires evidence from a repository or workspace, invoke the appropriate tools to collect real data.
 
 To complete the task:
 \`\`\`json
@@ -304,15 +369,24 @@ To complete the task:
       .map((s) => `Step #${s.stepNumber} [${s.tool || "decision"}]: ${s.description}\nResult: ${s.toolResult || "(none)"}`)
       .join("\n\n");
 
+    const wsInfo = `Target Workspace: ${task.workspaceId || "default_workspace"}${task.workspacePath ? ` (Path: ${task.workspacePath})` : ""}`;
+    const criteriaInfo = task.acceptanceCriteria && task.acceptanceCriteria.length > 0
+      ? `\nACCEPTANCE CRITERIA:\n${task.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}`
+      : "";
+    const reqToolsInfo = task.requiredTools && task.requiredTools.length > 0
+      ? `\nREQUIRED TOOLS FOR COMPLETION:\n${task.requiredTools.map((t) => `- ${t}`).join("\n")}`
+      : "";
+
     return `TASK TO EXECUTE:
 ID: ${task.id}
 Title: ${task.title}
 Description: ${task.description}
+${wsInfo}${criteriaInfo}${reqToolsInfo}
 
 EXECUTION PROGRESS (Turn ${iteration}):
 ${previousSteps || "(No previous steps executed yet)"}
 
-Analyze the task requirements and previous step results. Formulate your next action and return your JSON decision.`;
+Analyze the task requirements, target workspace, and previous step results. Formulate your next action and return your JSON decision.`;
   }
 
   private parseDecision(text: string): AgentActionDecision {

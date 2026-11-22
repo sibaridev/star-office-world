@@ -47,7 +47,10 @@ export class TaskPersistence {
       for (const file of files) {
         try {
           const raw = fs.readFileSync(path.join(this.tasksDir, file), "utf8");
-          tasks.push(JSON.parse(raw) as OfficeTask);
+          const parsed = JSON.parse(raw) as OfficeTask;
+          parsed.steps = parsed.steps || [];
+          parsed.provenance = parsed.provenance || [];
+          tasks.push(parsed);
         } catch {
           // ignore corrupted single files
         }

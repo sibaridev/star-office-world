@@ -61,7 +61,7 @@ export class WorkspaceRegistry {
     }
 
     const id = opts.workspaceId || `ws_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    
+
     // Check git repository info
     let gitInfo: WorkspaceConfig["gitInfo"] = { isRepo: false };
     try {
@@ -70,7 +70,7 @@ export class WorkspaceRegistry {
       let headCommit: string | undefined;
       try {
         headCommit = execSync("git rev-parse HEAD", { cwd: realRoot, encoding: "utf8" }).trim();
-      } catch {}
+      } catch { }
       gitInfo = { isRepo: true, branch, headCommit };
     } catch {
       // not a git repo
@@ -202,5 +202,50 @@ export class WorkspaceRegistry {
     } catch {
       return { exists: true, isEmpty: true, fileCount: 0, path: ws.path, gitInfo: ws.gitInfo };
     }
+  }
+
+  public listFiles(workspaceId: string, subDir = "", maxFiles = 100): string[] {
+    const fullPath = this.resolveSafePath(workspaceId, subDir);
+    if (!fs.existsSync(fullPath)) {
+      throw new Error(`Directory does not exist: ${subDir}`);
+    }
+
+    const results: string[] = [];
+    const walk = (dir: string, prefix = ""): void => {
+      if (results.length >= maxFiles) return;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (results.length >= maxFiles) break;
+        if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".next" || entry.name === "dist") {
+          continue;
+        }
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          results.push(`${rel}/`);
+          walk(path.join(dir, entry.name), rel);
+        } else {
+          results.push(rel);
+        }
+      }
+    };
+
+    walk(fullPath);
+    return results;
+  }
+
+  public readFile(workspaceId: string, relativePath: string, maxBytes = 100000): string {
+    const fullPath = this.resolveSafePath(workspaceId, relativePath);
+    if (!fs.existsSync(fullPath)) {
+      throw new Error(`File does not exist in workspace '${workspaceId}': ${relativePath}`);
+    }
+    const stat = fs.statSync(fullPath);
+    if (!stat.isFile()) {
+      throw new Error(`Path is not a file: ${relativePath}`);
+    }
+    const content = fs.readFileSync(fullPath, "utf8");
+    if (content.length > maxBytes) {
+      return content.slice(0, maxBytes) + `\n\n[TRUNCATED: Exceeded ${maxBytes} bytes limit]`;
+    }
+    return content;
   }
 }

@@ -11,6 +11,7 @@ import type { SSEManager } from "../../sse.js";
 import type { MemoStore } from "../../memo-store.js";
 import type { AIProvider } from "../../ai/interfaces/AIProvider.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
+import { ToolExecutionGateway } from "../tools/ToolExecutionGateway.js";
 import { TaskManager } from "../tasks/TaskManager.js";
 import { AgentRegistry, DEFAULT_AGENTS } from "./AgentRegistry.js";
 import { AgentInstance } from "./AgentInstance.js";
@@ -33,6 +34,7 @@ export interface AgentRuntimeDeps {
 export class AgentRuntime {
   private deps: AgentRuntimeDeps;
   public readonly toolRegistry: ToolRegistry;
+  public readonly toolGateway: ToolExecutionGateway;
   public readonly taskManager: TaskManager;
   public readonly agentRegistry: AgentRegistry;
   public readonly antigravityBridge: AntigravityBridge;
@@ -48,6 +50,7 @@ export class AgentRuntime {
     this.deps = deps;
     this.workspaceDir = path.join(deps.dataDir, "workspace");
     this.toolRegistry = new ToolRegistry();
+    this.toolGateway = new ToolExecutionGateway(this.toolRegistry, deps.dataDir);
     this.agentRegistry = new AgentRegistry(deps.dataDir);
 
     this.promptRegistry = new PromptRegistry(deps.dataDir);
@@ -110,6 +113,7 @@ export class AgentRuntime {
       config: cfg,
       aiProvider: this.deps.aiProvider,
       toolRegistry: this.toolRegistry,
+      toolGateway: this.toolGateway,
       taskManager: this.taskManager,
       dataDir: this.deps.dataDir,
       workspaceDir: this.workspaceDir,
@@ -308,6 +312,11 @@ export class AgentRuntime {
     description: string;
     assignedAgentId?: string;
     priority?: "low" | "medium" | "high";
+    workspaceId?: string;
+    workspacePath?: string;
+    acceptanceCriteria?: string[];
+    requiredEvidence?: string[];
+    requiredTools?: string[];
   }): OfficeTask {
     const task = this.taskManager.createTask(opts);
     this.dispatchPendingTasks();

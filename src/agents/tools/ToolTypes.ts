@@ -28,6 +28,8 @@ export interface ToolExecutionContext {
   eventBus?: (event: string, payload: unknown) => void;
   antigravityBridge?: any;
   permissions?: AgentPermission;
+  workspaceId?: string;
+  workspacePath?: string;
 }
 
 export interface ToolExecutionResult {

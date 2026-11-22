@@ -63,10 +63,10 @@ export class CompletionVerifier {
     }
 
     // 3. Inspection / Audit Task Integrity Enforcement
+    const combinedText = `${task.title} ${task.description}`;
     const isInspectionTask =
-      /(?:audit|inspect|status|verify|check)\s+(?:workspace|repository|git|branch|files)/i.test(
-        `${task.title} ${task.description}`
-      );
+      /\b(?:audit|inspect|inspection|verify|verification|check|status)\b/i.test(combinedText) &&
+      /\b(?:workspace|repository|git|branch|files|codebase)\b/i.test(combinedText);
 
     if (isInspectionTask && completedToolExecutions.length === 0) {
       return {
@@ -84,10 +84,21 @@ export class CompletionVerifier {
 
       for (const criterion of task.acceptanceCriteria) {
         const criterionLower = criterion.toLowerCase();
-        // Check if evidence exists in completed tool outputs or proposed result
+        const keywords = criterionLower
+          .split(/[^a-z0-9_-]+/)
+          .filter((w) => w.length >= 3 && !["inspect", "verify", "check", "perform", "with", "from", "that"].includes(w));
+
+        // Check if evidence exists in completed tool executions (tool name + output) or proposed result
         const hasEvidence =
-          completedToolExecutions.some((p) => (p.output || "").toLowerCase().includes(criterionLower)) ||
-          proposedResult.toLowerCase().includes(criterionLower);
+          completedToolExecutions.some((p) => {
+            const toolAndOutput = `${p.tool} ${p.output || ""}`.toLowerCase();
+            return (
+              toolAndOutput.includes(criterionLower) ||
+              (keywords.length > 0 && keywords.every((kw) => toolAndOutput.includes(kw)))
+            );
+          }) ||
+          proposedResult.toLowerCase().includes(criterionLower) ||
+          (keywords.length > 0 && keywords.every((kw) => proposedResult.toLowerCase().includes(kw)));
 
         if (hasEvidence) {
           evidence.push(criterion);

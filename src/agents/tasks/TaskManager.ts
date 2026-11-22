@@ -179,8 +179,15 @@ export class TaskManager {
     const task = this.tasks.get(taskId);
     if (!task) return null;
 
+    // Aggregate provenance from task and any subtasks
+    const childTasks = this.listTasks({ parentTaskId: taskId });
+    const effectiveProvenance = [
+      ...(task.provenance || []),
+      ...childTasks.flatMap((c: OfficeTask) => c.provenance || []),
+    ];
+
     // Verify completion against evidence and check for natural language refusals/excuses
-    const verify = CompletionVerifier.verifyCompletion(task, result, task.provenance);
+    const verify = CompletionVerifier.verifyCompletion(task, result, effectiveProvenance);
 
     if (!verify.canComplete) {
       task.status = verify.status; // BLOCKED or PARTIALLY_COMPLETED
@@ -274,6 +281,12 @@ export class TaskManager {
       this.persistence.recordRunLog(parent.id, parent.blockReason);
       this.notifyUpdate(parent);
       return;
+    }
+
+    // Clear previous blocker on parent if all children are unblocked
+    if (parent.status === "BLOCKED") {
+      parent.status = "IN_PROGRESS";
+      parent.blockReason = undefined;
     }
 
     // 2. Check if any child is PARTIALLY_COMPLETED

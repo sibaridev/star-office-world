@@ -98,6 +98,10 @@ export class WorkspaceRegistry {
     return this.workspaces.get(workspaceId);
   }
 
+  public get(workspaceId: string): WorkspaceConfig | undefined {
+    return this.workspaces.get(workspaceId);
+  }
+
   public listWorkspaces(): WorkspaceConfig[] {
     return Array.from(this.workspaces.values());
   }
@@ -214,18 +218,34 @@ export class WorkspaceRegistry {
     const walk = (dir: string, prefix = ""): void => {
       if (results.length >= maxFiles) return;
       const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const subdirs: { name: string; rel: string }[] = [];
+
       for (const entry of entries) {
         if (results.length >= maxFiles) break;
-        if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".next" || entry.name === "dist") {
+        if (
+          entry.name === ".git" ||
+          entry.name === "node_modules" ||
+          entry.name === ".next" ||
+          entry.name === "dist" ||
+          entry.name === ".gemini" ||
+          entry.name === ".system_generated" ||
+          entry.name === ".cache" ||
+          entry.name === ".turbo"
+        ) {
           continue;
         }
         const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
-          results.push(`${rel}/`);
-          walk(path.join(dir, entry.name), rel);
+          subdirs.push({ name: entry.name, rel });
         } else {
           results.push(rel);
         }
+      }
+
+      for (const sub of subdirs) {
+        if (results.length >= maxFiles) break;
+        results.push(`${sub.rel}/`);
+        walk(path.join(dir, sub.name), sub.rel);
       }
     };
 

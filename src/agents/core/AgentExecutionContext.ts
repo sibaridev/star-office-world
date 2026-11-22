@@ -90,14 +90,7 @@ export class AgentExecutionContext {
     targetWorkspaceId?: string;
     targetWorkspacePath?: string;
   }): AgentExecutionContext {
-    // Intersect tools: child agent must be authorized for the tool in its config
-    const targetTools = opts.childAllowedTools.filter((t) => {
-      // If task specifies requiredTools, must be authorized for child
-      if (opts.subtaskRequiredTools && opts.subtaskRequiredTools.length > 0) {
-        return opts.subtaskRequiredTools.includes(t);
-      }
-      return true;
-    });
+    const targetTools = [...opts.childAllowedTools];
 
     return new AgentExecutionContext({
       contextId: `ctx_${Date.now()}_child_${opts.childAgentId}`,
@@ -109,9 +102,9 @@ export class AgentExecutionContext {
       workspacePath: opts.targetWorkspacePath || this.workspacePath,
       allowedTools: targetTools,
       permissions: opts.childPermissions,
-      acceptanceCriteria: opts.subtaskAcceptanceCriteria || [],
-      requiredEvidence: opts.subtaskRequiredEvidence || [],
-      requiredTools: opts.subtaskRequiredTools || [],
+      acceptanceCriteria: opts.subtaskAcceptanceCriteria || this.acceptanceCriteria,
+      requiredEvidence: opts.subtaskRequiredEvidence || this.requiredEvidence,
+      requiredTools: opts.subtaskRequiredTools || this.requiredTools,
       executionLimits: this.executionLimits,
       dataDir: this.dataDir,
       scratchWorkspaceDir: this.scratchWorkspaceDir,

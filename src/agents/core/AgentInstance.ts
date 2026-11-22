@@ -136,9 +136,14 @@ export class AgentInstance {
     const effectiveWorkspaceId = task.workspaceId || "default_workspace";
     let effectiveWorkspacePath = task.workspacePath;
     if (!effectiveWorkspacePath && this.antigravityBridge?.workspaces) {
-      const ws = this.antigravityBridge.workspaces.get(effectiveWorkspaceId);
+      const ws =
+        typeof this.antigravityBridge.workspaces.getWorkspace === "function"
+          ? this.antigravityBridge.workspaces.getWorkspace(effectiveWorkspaceId)
+          : typeof this.antigravityBridge.workspaces.get === "function"
+          ? this.antigravityBridge.workspaces.get(effectiveWorkspaceId)
+          : undefined;
       if (ws) {
-        effectiveWorkspacePath = ws.rootPath;
+        effectiveWorkspacePath = ws.path || (ws as any).rootPath;
       }
     }
 

@@ -12,6 +12,7 @@ import type {
   CreateTaskOptions,
   TaskFilter,
   ToolExecutionProvenance,
+  TaskCheckpoint,
 } from "./TaskTypes.js";
 import { CompletionVerifier } from "./CompletionVerifier.js";
 
@@ -192,6 +193,7 @@ export class TaskManager {
     if (!verify.canComplete) {
       task.status = verify.status; // BLOCKED or PARTIALLY_COMPLETED
       task.result = result;
+      task.provenance = effectiveProvenance;
       task.blockReason = verify.blockReason;
       task.incompleteRequirements = verify.incompleteRequirements;
       task.updatedAt = Date.now();
@@ -208,6 +210,7 @@ export class TaskManager {
 
     task.status = "COMPLETED";
     task.result = result;
+    task.provenance = effectiveProvenance;
     task.blockReason = undefined;
     task.incompleteRequirements = undefined;
     task.completedAt = Date.now();
@@ -220,6 +223,46 @@ export class TaskManager {
     this.resolveDependencies();
     this.checkParentCompletion(task.parentTaskId);
 
+    return task;
+  }
+
+  public saveCheckpoint(
+    taskId: string,
+    checkpoint: Omit<TaskCheckpoint, "checkpointId" | "savedAt">
+  ): TaskCheckpoint | null {
+    const task = this.tasks.get(taskId);
+    if (!task) return null;
+
+    const cp: TaskCheckpoint = {
+      ...checkpoint,
+      checkpointId: `cp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      savedAt: Date.now(),
+    };
+
+    task.checkpoint = cp;
+    task.status = "PARTIALLY_COMPLETED";
+    task.updatedAt = Date.now();
+    this.persistence.saveTask(task);
+    this.persistence.recordRunLog(
+      taskId,
+      `Checkpoint ${cp.checkpointId} saved at turn ${cp.turnNumber}/${cp.maxTurns}: ${cp.intermediateFindings.slice(0, 100)}`
+    );
+    this.notifyUpdate(task);
+    return cp;
+  }
+
+  public resumeFromCheckpoint(taskId: string): OfficeTask | null {
+    const task = this.tasks.get(taskId);
+    if (!task) return null;
+
+    task.status = "PENDING";
+    task.updatedAt = Date.now();
+    this.persistence.saveTask(task);
+    this.persistence.recordRunLog(
+      taskId,
+      `Resumed from checkpoint ${task.checkpoint?.checkpointId || "latest"}. Transitioned to PENDING.`
+    );
+    this.notifyUpdate(task);
     return task;
   }
 

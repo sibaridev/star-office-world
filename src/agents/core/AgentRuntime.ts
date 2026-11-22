@@ -244,9 +244,10 @@ export class AgentRuntime {
   }
 
   private startSupervisor(): void {
-    // Polls queue every 1500ms to dispatch pending tasks to idle agents
+    // Polls queue every 1500ms to dispatch pending tasks to idle agents and resume unblocked parent tasks
     this.dispatchTimer = setInterval(() => {
       this.dispatchPendingTasks();
+      this.resumeUnblockedParentTasks();
     }, 1500);
     if (typeof this.dispatchTimer.unref === "function") {
       this.dispatchTimer.unref();
@@ -258,6 +259,23 @@ export class AgentRuntime {
     const cfg = this.configManager.getAgent(instance.agentId);
     if (!cfg) return true;
     return cfg.lifecycleStatus === "ACTIVE";
+  }
+
+  private resumeUnblockedParentTasks(): void {
+    const inProgressTasks = this.taskManager.listTasks({ status: "IN_PROGRESS" });
+    for (const task of inProgressTasks) {
+      const children = this.taskManager.listTasks({ parentTaskId: task.id });
+      if (children.length > 0 && children.every((c) => c.status === "COMPLETED")) {
+        if (task.assignedAgentId) {
+          const agent = this.agents.get(task.assignedAgentId);
+          if (agent && (agent.status === "WAITING" || agent.status === "IDLE")) {
+            agent.executeCurrentTask().catch((err) => {
+              console.error(`[agent-runtime] Failed to resume parent task ${task.id} on ${agent.name}:`, err);
+            });
+          }
+        }
+      }
+    }
   }
 
   private dispatchPendingTasks(): void {

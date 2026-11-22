@@ -282,18 +282,29 @@ export class AgentInstance {
       }
 
       if (!completed && iteration >= effectiveMaxIterations) {
-        const compRes = this.taskManager.completeTask(
-          task.id,
-          `Task reached maximum permitted turns (${effectiveMaxIterations}). Intermediate findings preserved.`
+        const lastStep = task.steps[task.steps.length - 1];
+        const findingsSummary = task.steps
+          .map((s) => `[${s.tool || "decision"}]: ${s.description} -> ${s.toolResult || ""}`)
+          .slice(-6)
+          .join("\n");
+
+        this.taskManager.saveCheckpoint(task.id, {
+          turnNumber: iteration,
+          maxTurns: effectiveMaxIterations,
+          intermediateFindings:
+            findingsSummary ||
+            `Task reached iteration limit (${effectiveMaxIterations} turns). Intermediate findings preserved.`,
+          completedStepsCount: task.steps.length,
+          nextRecommendedAction: lastStep
+            ? `Resume execution after step #${lastStep.stepNumber}: ${lastStep.description}`
+            : "Resume execution from preserved intermediate findings",
+        });
+
+        this.lifecycle.transition(
+          "PAUSED",
+          `Turn limit reached (${effectiveMaxIterations} turns). Execution checkpoint preserved.`
         );
-        if (compRes && compRes.status !== "COMPLETED") {
-          const reason = compRes.blockReason || "Turn limit reached but completion criteria unmet";
-          this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
-          this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
-        } else {
-          this.lifecycle.transition("COMPLETED", "Reached max iterations");
-          this.emitStateChange(`Completed (iteration limit reached)`);
-        }
+        this.emitStateChange(`Paused (turn limit reached, checkpoint saved)`);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -382,16 +393,45 @@ To complete the task:
       ? `\nREQUIRED TOOLS FOR COMPLETION:\n${task.requiredTools.map((t) => `- ${t}`).join("\n")}`
       : "";
 
+    // Checkpoint resumption guidance
+    const checkpointInfo = task.checkpoint
+      ? `\nPREVIOUS EXECUTION CHECKPOINT (Turn ${task.checkpoint.turnNumber}/${task.checkpoint.maxTurns}):
+Saved At: ${new Date(task.checkpoint.savedAt).toISOString()}
+Intermediate Findings:
+${task.checkpoint.intermediateFindings}
+Completed Steps Count: ${task.checkpoint.completedStepsCount}
+Next Recommended Action: ${task.checkpoint.nextRecommendedAction || "Continue from preserved intermediate findings"}\n`
+      : "";
+
+    // Delegated subtask outcomes visibility
+    const childTasks = this.taskManager.listTasks({ parentTaskId: task.id });
+    const childDeliverablesInfo =
+      childTasks.length > 0
+        ? `\nDELEGATED SUBTASK DELIVERABLES & OUTCOMES:
+${childTasks
+  .map(
+    (c) =>
+      `* Subtask "${c.title}" (Assigned: ${c.assignedAgentId || "unassigned"}) -> Status: [${c.status}]
+  Deliverable: ${c.result || "(in progress / no deliverable yet)"}
+  Executed Tools Provenance: ${
+    c.provenance && c.provenance.length > 0
+      ? c.provenance.map((p) => `${p.tool} (${p.status})`).join(", ")
+      : "(none)"
+  }`
+  )
+  .join("\n")}\n`
+        : "";
+
     return `TASK TO EXECUTE:
 ID: ${task.id}
 Title: ${task.title}
 Description: ${task.description}
-${wsInfo}${criteriaInfo}${reqToolsInfo}
+${wsInfo}${criteriaInfo}${reqToolsInfo}${checkpointInfo}${childDeliverablesInfo}
 
 EXECUTION PROGRESS (Turn ${iteration}):
 ${previousSteps || "(No previous steps executed yet)"}
 
-Analyze the task requirements, target workspace, and previous step results. Formulate your next action and return your JSON decision.`;
+Analyze the task requirements, target workspace, delegated subtask deliverables, and previous step results. Formulate your next action and return your JSON decision.`;
   }
 
   private parseDecision(text: string): AgentActionDecision {

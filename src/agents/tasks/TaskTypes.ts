@@ -56,6 +56,16 @@ export interface ToolExecutionProvenance {
   parentExecutionId?: string;
 }
 
+export interface TaskCheckpoint {
+  checkpointId: string;
+  savedAt: number;
+  turnNumber: number;
+  maxTurns: number;
+  intermediateFindings: string;
+  completedStepsCount: number;
+  nextRecommendedAction?: string;
+}
+
 export interface OfficeTask {
   id: string;
   title: string;
@@ -76,6 +86,7 @@ export interface OfficeTask {
   incompleteRequirements?: string[];
   result?: string;
   error?: string;
+  checkpoint?: TaskCheckpoint;
   createdAt: number;
   updatedAt: number;
   startedAt?: number;

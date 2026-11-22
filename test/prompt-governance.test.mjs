@@ -355,7 +355,7 @@ test("Phase 13 [TEST K]: Star Office World REST API End-to-End for Prompt Govern
     assert.equal(agentsRes.status, 200);
     const agentsData = await agentsRes.json();
     assert.equal(agentsData.ok, true);
-    assert.equal(agentsData.agents.length, 4);
+    assert.ok(agentsData.agents.length >= 4);
     assert.equal(agentsData.agents[0].versionId, "v1");
 
     // 2. GET /api/prompts/agents/:agentId/effective

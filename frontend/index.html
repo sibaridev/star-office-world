@@ -4850,6 +4850,23 @@ function toggleBrokerPanel() {
                             `;
                         }).join('');
                     }
+
+                    const assigneeSelect = document.getElementById('new-task-assignee');
+                    if (assigneeSelect && agentsData.agents && agentsData.agents.length > 0) {
+                        const currentVal = assigneeSelect.value;
+                        const signature = agentsData.agents.map(a => a.agentId).join(',');
+                        if (assigneeSelect.dataset.lastSignature !== signature) {
+                            assigneeSelect.dataset.lastSignature = signature;
+                            let html = `<option value="">🎯 Auto Coordinate (Alex Coordinator)</option>`;
+                            for (const agent of agentsData.agents) {
+                                if (agent.agentId === 'agent_coordinator') continue;
+                                const icon = agent.agentId === 'agent_nova' ? '⚡' : agent.agentId === 'agent_researcher' ? '🔍' : agent.agentId === 'agent_writer' ? '✍️' : '🛡️';
+                                html += `<option value="${agent.agentId}">${icon} ${agent.name} (${agent.role})</option>`;
+                            }
+                            assigneeSelect.innerHTML = html;
+                            if (currentVal) assigneeSelect.value = currentVal;
+                        }
+                    }
                 }
 
                 // 3. Tasks List
@@ -6063,6 +6080,7 @@ function toggleBrokerPanel() {
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
               <select id="new-task-assignee" style="background:#0f172a; border:1px solid #475569; color:#e2e8f0; padding:6px 10px; font-family:ArkPixel,monospace; border-radius:4px; font-size:12px;">
                 <option value="">🎯 Auto Coordinate (Alex Coordinator)</option>
+                <option value="agent_nova">⚡ Nova (Principal Engineer) — Antigravity Master</option>
                 <option value="agent_researcher">🔍 Robin (Researcher) — Information Retrieval</option>
                 <option value="agent_writer">✍️ Sam (Writer) — Technical Writing</option>
                 <option value="agent_reviewer">🛡️ Morgan (Reviewer) — QA & Verification</option>

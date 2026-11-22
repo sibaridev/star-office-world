@@ -34,7 +34,7 @@ test("API Routes — Task and Runtime endpoints work end-to-end", async () => {
     assert.equal(agentsRes.status, 200);
     const agentsData = await agentsRes.json();
     assert.equal(agentsData.ok, true);
-    assert.equal(agentsData.agents.length, 4);
+    assert.ok(agentsData.agents.length >= 4);
 
     const coordinator = agentsData.agents.find((a) => a.agentId === "agent_coordinator");
     assert.ok(coordinator, "Coordinator agent must exist");

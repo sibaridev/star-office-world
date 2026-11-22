@@ -319,5 +319,6 @@ export class AgentRuntime {
       clearInterval(this.dispatchTimer);
       this.dispatchTimer = null;
     }
+    this.antigravityBridge.destroy();
   }
 }

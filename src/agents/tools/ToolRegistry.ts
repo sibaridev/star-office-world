@@ -23,6 +23,11 @@ import {
 import {
   delegateToAntigravityTool,
   checkAntigravityBridgeTool,
+  runAntigravityE2ETestTool,
+  listAntigravityTasksTool,
+  getAntigravityTaskDetailsTool,
+  cancelAntigravityTaskTool,
+  inspectAntigravityWorkspaceTool,
 } from "./builtins/AntigravityTools.js";
 
 export class ToolRegistry {
@@ -42,6 +47,11 @@ export class ToolRegistry {
     this.register(postOfficeMemoTool);
     this.register(delegateToAntigravityTool);
     this.register(checkAntigravityBridgeTool);
+    this.register(runAntigravityE2ETestTool);
+    this.register(listAntigravityTasksTool);
+    this.register(getAntigravityTaskDetailsTool);
+    this.register(cancelAntigravityTaskTool);
+    this.register(inspectAntigravityWorkspaceTool);
   }
 
   public register(tool: ToolDefinition): void {

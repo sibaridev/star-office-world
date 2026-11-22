@@ -53,6 +53,17 @@ test("loadConfig prefers platform env vars over legacy STAR_OFFICE_* aliases", a
 })
 
 test("loadConfig still supports legacy STAR_OFFICE_* env vars when platform vars are absent", async () => {
+  delete process.env.WORLD_ID
+  delete process.env.WORLD_NAME
+  delete process.env.PEER_PORT
+  delete process.env.PUBLIC_PORT
+  delete process.env.PUBLIC_ADDR
+  delete process.env.GATEWAY_URL
+  delete process.env.WORLD_PASSWORD
+  delete process.env.MAX_AGENTS
+  delete process.env.WORLD_PUBLIC
+  delete process.env.DATA_DIR
+
   process.env.STAR_OFFICE_WORLD_ID = "legacy-world"
   process.env.STAR_OFFICE_NAME = "Legacy Name"
   process.env.STAR_OFFICE_PASSWORD = "legacy-password"

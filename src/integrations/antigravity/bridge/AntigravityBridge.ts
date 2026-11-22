@@ -412,11 +412,17 @@ export class AntigravityBridge {
     const args = ["--output-format", "stream-json", "--add-dir", ws.path, "--print", task.engineeringPrompt];
 
     try {
+      const cleanEnv = { ...process.env };
+      delete cleanEnv.NODE_TEST_CONTEXT;
+      delete cleanEnv.NODE_TEST_WORKER_ID;
+
       const child = spawn(agyPath, args, {
         cwd: ws.path,
         shell: false,
         windowsHide: true,
+        env: cleanEnv,
       });
+      child.unref();
 
       task.pid = child.pid;
       task.executionMethod = "agy_cli";
@@ -497,6 +503,11 @@ export class AntigravityBridge {
         this.activeProcesses.delete(taskId);
         this.workspaces.setActiveTask(task.workspaceId, null);
 
+        const currentTask = this.taskManager.getTask(taskId);
+        if (currentTask?.status === "CANCELLED" || currentTask?.status === "COMPLETED") {
+          return;
+        }
+
         if (code === 0) {
           const gitDiff = this.workspaces.getGitDiff(ws.workspaceId);
           const resultOutput = finalResultText || stdoutBuffer.trim() || "Antigravity execution completed successfully.";
@@ -528,7 +539,11 @@ export class AntigravityBridge {
     const proc = this.activeProcesses.get(taskId);
     if (proc) {
       try {
-        proc.kill();
+        if (process.platform === "win32" && proc.pid) {
+          execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: "ignore" });
+        } else {
+          proc.kill("SIGKILL");
+        }
       } catch {}
       this.activeProcesses.delete(taskId);
     }
@@ -537,6 +552,22 @@ export class AntigravityBridge {
       this.workspaces.setActiveTask(task.workspaceId, null);
     }
     return this.taskManager.cancelTask(taskId, reason);
+  }
+
+  /**
+   * Destroys the bridge and terminates all active child processes.
+   */
+  public destroy(): void {
+    for (const [taskId, proc] of this.activeProcesses) {
+      try {
+        if (process.platform === "win32" && proc.pid) {
+          execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: "ignore" });
+        } else {
+          proc.kill("SIGKILL");
+        }
+      } catch {}
+    }
+    this.activeProcesses.clear();
   }
 
   /**

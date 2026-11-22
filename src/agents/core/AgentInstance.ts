@@ -278,10 +278,15 @@ To delegate a subtask (if you are the Coordinator):
   "action": "delegate",
   "subtaskTitle": "...",
   "subtaskDescription": "...",
-  "delegateToAgentId": "agent_researcher | agent_writer | agent_reviewer",
+  "delegateToAgentId": "agent_nova | agent_researcher | agent_writer | agent_reviewer",
   "thought": "Why delegating"
 }
 \`\`\`
+
+CRITICAL INSTRUCTIONS:
+- You MUST ALWAYS respond with a JSON decision block. Do NOT reply with conversational chat or plain prose.
+- When asked about Antigravity access, connection status, or software engineering tasks: DO NOT guess or assume Antigravity is absent! Call the \`check_antigravity_bridge\` tool first or delegate to \`agent_nova\`.
+- Never claim you lack access to tools that are listed in AVAILABLE TOOLS.
 
 To complete the task:
 \`\`\`json

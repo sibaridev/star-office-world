@@ -443,7 +443,7 @@ export function registerUIRoutes(
     const body = (req.body as Record<string, unknown>) ?? {};
     const reason = String(body["reason"] || "Cancelled via UI");
 
-    const updated = antigravityBridge.taskManager.cancelTask(params.id, reason);
+    const updated = antigravityBridge.cancelTask(params.id, reason);
     if (!updated) {
       reply.code(404);
       return { ok: false, error: "Task not found" };

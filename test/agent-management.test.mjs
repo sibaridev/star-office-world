@@ -200,7 +200,7 @@ test("6. Built-in templates and custom template creation", () => {
   const mgr = new AgentConfigManager(testDir);
 
   const templates = mgr.listTemplates();
-  assert.equal(templates.length, 11, "Should have 11 built-in templates");
+  assert.equal(templates.length, 12, "Should have 12 built-in templates");
 
   const arch = mgr.getTemplate("tpl_software_architect");
   assert.ok(arch);
@@ -381,7 +381,7 @@ test("9. UI REST endpoints for Agent Management work end-to-end", async () => {
     assert.equal(tplRes.status, 200);
     const tplData = await tplRes.json();
     assert.equal(tplData.ok, true);
-    assert.equal(tplData.templates.length, 11);
+    assert.equal(tplData.templates.length, 12);
 
     // 3. POST /api/agent-management/agents (Create)
     const createRes = await fetch(`${baseUrl}/api/agent-management/agents`, {

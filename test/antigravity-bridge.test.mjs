@@ -540,3 +540,59 @@ test("Antigravity Real Connection: Strict Task Completion Semantics", async (t) 
   assert.ok(completed.completedAt);
 });
 
+test("Antigravity Master Agent (Nova): Full Access and Antigravity Tool Suite", async (t) => {
+  const { bridge, sse, tempDir } = setupTestEnv();
+  t.after(() => sse.destroy());
+
+  const { DEFAULT_AGENTS } = await import("../dist/agents/core/AgentRegistry.js");
+  const nova = DEFAULT_AGENTS.find((a) => a.agentId === "agent_nova");
+  assert.ok(nova, "Nova (agent_nova) must be configured in DEFAULT_AGENTS");
+  assert.equal(nova.name, "Nova");
+  assert.equal(nova.role, "Antigravity Principal Engineer & Master");
+  assert.equal(nova.avatar, "guest_role_5");
+
+  const expectedTools = [
+    "check_antigravity_bridge",
+    "delegate_to_antigravity",
+    "run_antigravity_e2e_test",
+    "list_antigravity_tasks",
+    "get_antigravity_task_details",
+    "cancel_antigravity_task",
+    "inspect_antigravity_workspace",
+  ];
+
+  for (const toolName of expectedTools) {
+    assert.ok(nova.allowedTools.includes(toolName), `Nova must have access to ${toolName}`);
+  }
+
+  // Test list_antigravity_tasks tool execution
+  const { listAntigravityTasksTool, inspectAntigravityWorkspaceTool } = await import(
+    "../dist/agents/tools/builtins/AntigravityTools.js"
+  );
+
+  const listRes = await listAntigravityTasksTool.execute({}, {
+    agentId: "agent_nova",
+    agentName: "Nova",
+    taskId: "test_task",
+    dataDir: tempDir,
+    workspaceDir: tempDir,
+    antigravityBridge: bridge,
+  });
+  assert.equal(listRes.success, true);
+
+  // Test inspect_antigravity_workspace tool execution
+  const inspectRes = await inspectAntigravityWorkspaceTool.execute(
+    { workspaceId: "default_workspace" },
+    {
+      agentId: "agent_nova",
+      agentName: "Nova",
+      taskId: "test_task",
+      dataDir: tempDir,
+      workspaceDir: tempDir,
+      antigravityBridge: bridge,
+    }
+  );
+  assert.equal(inspectRes.success, true);
+  assert.ok(inspectRes.output.includes("Workspace Inspection"));
+});
+

@@ -128,8 +128,51 @@ export class AgentConfigManager {
         const list = JSON.parse(raw) as FullAgentConfig[];
         if (Array.isArray(list) && list.length > 0) {
           for (const item of list) {
+            // Merge in any newly introduced tools or updated baseline instructions from DEFAULT_AGENTS
+            const defaultDef = DEFAULT_AGENTS.find((d) => d.agentId === item.agentId);
+            if (defaultDef) {
+              const toolSet = new Set([...item.allowedTools, ...defaultDef.allowedTools]);
+              item.allowedTools = Array.from(toolSet);
+              if (defaultDef.systemPrompt && !item.systemPrompt.includes("Antigravity") && defaultDef.systemPrompt.includes("Antigravity")) {
+                item.systemPrompt = defaultDef.systemPrompt;
+              }
+              if (defaultDef.permissions) {
+                item.permissions = { ...defaultDef.permissions, ...item.permissions };
+              }
+            }
             this.configs.set(item.agentId, item);
           }
+          // Ensure newly registered agents in DEFAULT_AGENTS (e.g. agent_nova) are also present
+          for (const def of DEFAULT_AGENTS) {
+            if (!this.configs.has(def.agentId)) {
+              const full: FullAgentConfig = {
+                agentId: def.agentId,
+                name: def.name,
+                role: def.role,
+                description: def.description || `Autonomous agent ${def.name}`,
+                avatar: def.avatar || "guest_role_5",
+                displayColor: def.displayColor || "#38bdf8",
+                systemPrompt: def.systemPrompt,
+                allowedTools: [...def.allowedTools],
+                isMain: !!def.isMain,
+                responsibilities: def.responsibilities || [def.description || "General operations"],
+                objectives: ["Fulfill assigned tasks with high quality"],
+                expectedOutputs: ["Detailed summaries and deliverables"],
+                expertise: [def.role],
+                skills: [],
+                permissions: def.permissions ? { ...DEFAULT_PERMISSIONS, ...def.permissions } : { ...DEFAULT_PERMISSIONS },
+                memory: { ...DEFAULT_MEMORY_CONFIG },
+                team: { ...DEFAULT_TEAM_CONFIG },
+                execution: { ...DEFAULT_EXECUTION_CONFIG },
+                lifecycleStatus: "ACTIVE",
+                configVersion: 1,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              };
+              this.configs.set(def.agentId, full);
+            }
+          }
+          this.persistAll();
           return;
         }
       } catch (err) {

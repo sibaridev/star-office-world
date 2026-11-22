@@ -5,6 +5,7 @@
  * AI agents join via the AWN peer protocol; browsers view via SSE + REST.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { createWorldServer } from "@resciencelab/agent-world-sdk";
 import type { WorldServer } from "@resciencelab/agent-world-sdk";
@@ -22,6 +23,8 @@ import { SSEManager } from "./sse.js";
 import { MemoStore } from "./memo-store.js";
 import { registerUIRoutes } from "./ui-routes.js";
 import type { StarOfficeConfig } from "./types.js";
+import { GeminiSessionProvider } from "./ai/providers/gemini/GeminiSessionProvider.js";
+import { AgentRuntime } from "./agents/core/AgentRuntime.js";
 
 export { loadConfig, resolveConfig } from "./config.js";
 export type { StarOfficeConfig } from "./types.js";
@@ -36,7 +39,7 @@ export type {
 
 export async function createStarOfficeWorld(
   overrides?: Partial<StarOfficeConfig>,
-): Promise<WorldServer & { sse: SSEManager }> {
+): Promise<WorldServer & { sse: SSEManager; runtime?: AgentRuntime; aiProvider?: GeminiSessionProvider }> {
   const config = await resolveConfig(overrides);
   const dataDir = config.dataDir ?? "./data";
   const state = createInitialState(config);
@@ -47,12 +50,31 @@ export async function createStarOfficeWorld(
   state.yesterdayMemo = memoStore.getYesterday();
   state.todayMemos = memoStore.getToday();
 
-  // Hydrate agents from last snapshot (all restored as offline)
+  // Initialize Gemini Session Provider & Agent Runtime if enabled
+  let aiProvider: GeminiSessionProvider | undefined;
+  let runtime: AgentRuntime | undefined;
+
+  if (config.enableAgentRuntime) {
+    aiProvider = new GeminiSessionProvider();
+    await aiProvider.initialize();
+
+    runtime = new AgentRuntime({
+      officeState: state,
+      sse,
+      memoStore,
+      aiProvider,
+      dataDir,
+    });
+  }
+
+  // Hydrate external agents from last snapshot (all restored as offline)
   initSnapshotDir(dataDir);
   const snapshot = loadAgentsSnapshot(dataDir);
   if (snapshot) {
     for (const agent of Object.values(snapshot)) {
-      state.agents[agent.agentId] = { ...agent, online: false };
+      if (!state.agents[agent.agentId]) {
+        state.agents[agent.agentId] = { ...agent, online: false };
+      }
     }
     rebuildRooms(state);
     console.log(`[office] Restored ${Object.keys(snapshot).length} agent(s) from snapshot`);
@@ -65,7 +87,7 @@ export async function createStarOfficeWorld(
     worldId: config.worldId ?? "star-office",
     worldName: config.officeName ?? "Star Office",
     worldTheme: "pixel-office",
-    mainAgentId: config.mainAgentId,
+    mainAgentId: config.mainAgentId ?? (config.enableAgentRuntime ? "agent_coordinator" : undefined),
   });
 
   const server = await createWorldServer(
@@ -92,16 +114,15 @@ export async function createStarOfficeWorld(
       setupRoutes: async (fastify) => {
         // Register browser-facing routes
         registerUIRoutes(fastify, {
-          // UI routes currently receive a public snapshot, not the mutable
-          // backing object used by AWN hooks. Route handlers that need to
-          // change agent state must call the canonical helpers in `state.ts`
-          // instead of mutating the object returned here.
           getState: () => getPublicState(state),
           setAgentState: (agentId, newState, detail) =>
             updateAgentState(state, agentId, newState, detail),
           sse,
           memoStore,
           adminPassword: config.adminPassword ?? "1234",
+          agentRuntime: runtime,
+          aiProvider,
+          antigravityBridge: runtime?.antigravityBridge,
         });
 
         // Serve static frontend files
@@ -139,12 +160,16 @@ export async function createStarOfficeWorld(
   console.log(`[office] SSE: http://localhost:${config.port ?? 19000}/ui/events`);
   console.log(`[office] Health: http://localhost:${config.port ?? 19000}/health`);
 
-  // Wrap stop to also destroy SSE
+  // Wrap stop to also destroy SSE, runtime, and aiProvider
   const originalStop = server.stop.bind(server);
   return {
     ...server,
     sse,
+    runtime,
+    aiProvider,
     async stop() {
+      if (runtime) runtime.shutdown();
+      if (aiProvider) await aiProvider.shutdown();
       sse.destroy();
       await originalStop();
     },
@@ -154,12 +179,17 @@ export async function createStarOfficeWorld(
 // ── CLI Entry Point ──────────────────────────────────────────────────────────
 
 const isMain =
-  process.argv[1] &&
-  (process.argv[1].endsWith("/index.ts") ||
-    process.argv[1].endsWith("/index.js"));
+  Boolean(process.argv[1] && /[/\\]index\.(ts|js)$/.test(process.argv[1]));
 
 if (isMain) {
-  createStarOfficeWorld().catch((err) => {
+  if (typeof process.loadEnvFile === "function" && fs.existsSync(".env")) {
+    try {
+      process.loadEnvFile(".env");
+    } catch {
+      // ignore
+    }
+  }
+  createStarOfficeWorld({ enableAgentRuntime: true }).catch((err) => {
     console.error("Failed to start Star Office World:", err);
     process.exit(1);
   });

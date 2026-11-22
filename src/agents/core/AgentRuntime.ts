@@ -1,0 +1,229 @@
+/**
+ * Star Office World — Autonomous Agent Runtime Supervisor
+ * Manages all agent instances, dispatching tasks, and syncing with Star Office World.
+ */
+
+import path from "node:path";
+import type { OfficeWorldState } from "../../types.js";
+import { updateAgentState, addAgent, addMemo } from "../../state.js";
+import type { SSEManager } from "../../sse.js";
+import type { MemoStore } from "../../memo-store.js";
+import type { AIProvider } from "../../ai/interfaces/AIProvider.js";
+import { ToolRegistry } from "../tools/ToolRegistry.js";
+import { TaskManager } from "../tasks/TaskManager.js";
+import { AgentRegistry, DEFAULT_AGENTS } from "./AgentRegistry.js";
+import { AgentInstance } from "./AgentInstance.js";
+import type { OfficeTask } from "../tasks/TaskTypes.js";
+import { AntigravityBridge } from "../../integrations/antigravity/bridge/AntigravityBridge.js";
+import { PromptRegistry } from "../prompts/PromptRegistry.js";
+import { PromptProposalManager } from "../prompts/PromptProposalManager.js";
+
+export interface AgentRuntimeDeps {
+  officeState: OfficeWorldState;
+  sse: SSEManager;
+  memoStore: MemoStore;
+  aiProvider: AIProvider;
+  dataDir: string;
+}
+
+export class AgentRuntime {
+  private deps: AgentRuntimeDeps;
+  public readonly toolRegistry: ToolRegistry;
+  public readonly taskManager: TaskManager;
+  public readonly agentRegistry: AgentRegistry;
+  public readonly antigravityBridge: AntigravityBridge;
+  public readonly promptRegistry: PromptRegistry;
+  public readonly proposalManager: PromptProposalManager;
+  private agents = new Map<string, AgentInstance>();
+  private dispatchTimer: ReturnType<typeof setInterval> | null = null;
+  private workspaceDir: string;
+
+  constructor(deps: AgentRuntimeDeps) {
+    this.deps = deps;
+    this.workspaceDir = path.join(deps.dataDir, "workspace");
+    this.toolRegistry = new ToolRegistry();
+    this.agentRegistry = new AgentRegistry(deps.dataDir);
+
+    this.promptRegistry = new PromptRegistry(deps.dataDir);
+    this.proposalManager = new PromptProposalManager({
+      officeState: deps.officeState,
+      sse: deps.sse,
+      memoStore: deps.memoStore,
+      aiProvider: deps.aiProvider,
+      dataDir: deps.dataDir,
+      promptRegistry: this.promptRegistry,
+    });
+
+    this.antigravityBridge = new AntigravityBridge({
+      officeState: deps.officeState,
+      sse: deps.sse,
+      memoStore: deps.memoStore,
+      dataDir: deps.dataDir,
+    });
+
+    this.taskManager = new TaskManager(deps.dataDir, (task) => {
+      this.broadcastTaskEvent(task);
+    });
+
+    this.initializeAgents();
+    this.startSupervisor();
+  }
+
+  private initializeAgents(): void {
+    const configs = this.agentRegistry.getAgents();
+
+    for (const cfg of configs) {
+      // 1. Ensure registered in Star Office World state
+      if (!this.deps.officeState.agents[cfg.agentId]) {
+        const agent = addAgent(
+          this.deps.officeState,
+          cfg.agentId,
+          cfg.name,
+          cfg.avatar,
+          "idle",
+          cfg.role,
+          cfg.isMain
+        );
+        this.deps.sse.broadcast("agent_join", agent);
+      }
+
+      // 2. Instantiate runtime agent
+      const instance = new AgentInstance({
+        config: cfg,
+        aiProvider: this.deps.aiProvider,
+        toolRegistry: this.toolRegistry,
+        taskManager: this.taskManager,
+        dataDir: this.deps.dataDir,
+        workspaceDir: this.workspaceDir,
+        eventBus: (event, payload) => this.handleAgentEvent(event, payload),
+        antigravityBridge: this.antigravityBridge,
+        promptRegistry: this.promptRegistry,
+        proposalManager: this.proposalManager,
+      });
+
+      this.agents.set(cfg.agentId, instance);
+    }
+  }
+
+  private handleAgentEvent(event: string, payload: unknown): void {
+    const data = payload as Record<string, unknown>;
+
+    if (event === "agent_state_changed") {
+      const agentId = String(data["agentId"] ?? "");
+      const visualState = String(data["visualState"] ?? "idle");
+      const detail = String(data["detail"] ?? "");
+
+      const updated = updateAgentState(
+        this.deps.officeState,
+        agentId,
+        visualState,
+        detail
+      );
+
+      if (updated) {
+        this.deps.sse.broadcast("agent_update", updated);
+      }
+    } else if (event === "office_memo") {
+      const agentId = String(data["agentId"] ?? "");
+      const alias = String(data["alias"] ?? "");
+      const content = String(data["content"] ?? "");
+
+      const entry = addMemo(this.deps.officeState, agentId, alias, content);
+      try {
+        this.deps.memoStore.append(entry);
+      } catch (err) {
+        console.warn("[agent-runtime] Failed to persist memo:", err);
+      }
+      this.deps.sse.broadcast("memo", entry);
+    } else if (event === "agent_message") {
+      // Broadcast inter-agent message over SSE for UI visibility
+      this.deps.sse.broadcast("agent_update", {
+        agentId: data["fromAgentId"],
+        detail: `Sent memo to ${data["toAgentId"]}`,
+      });
+    }
+  }
+
+  private broadcastTaskEvent(task: OfficeTask): void {
+    // Custom SSE broadcast for task updates
+    this.deps.sse.broadcast("state", {
+      ...this.deps.officeState,
+      latestTask: task,
+    });
+  }
+
+  private startSupervisor(): void {
+    // Polls queue every 1500ms to dispatch pending tasks to idle agents
+    this.dispatchTimer = setInterval(() => {
+      this.dispatchPendingTasks();
+    }, 1500);
+    if (typeof this.dispatchTimer.unref === "function") {
+      this.dispatchTimer.unref();
+    }
+  }
+
+  private dispatchPendingTasks(): void {
+    const pendingTasks = this.taskManager.listTasks({ status: "PENDING" });
+    if (pendingTasks.length === 0) return;
+
+    for (const task of pendingTasks) {
+      let targetAgent: AgentInstance | undefined;
+
+      if (task.assignedAgentId) {
+        const designated = this.agents.get(task.assignedAgentId);
+        if (designated && designated.status === "IDLE") {
+          targetAgent = designated;
+        }
+      } else {
+        // Pick coordinator first for unassigned tasks
+        const coordinator = this.agents.get("agent_coordinator");
+        if (coordinator && coordinator.status === "IDLE") {
+          targetAgent = coordinator;
+        } else {
+          // Find any idle agent
+          for (const agent of this.agents.values()) {
+            if (agent.status === "IDLE") {
+              targetAgent = agent;
+              break;
+            }
+          }
+        }
+      }
+
+      if (targetAgent) {
+        this.taskManager.assignTask(task.id, targetAgent.agentId);
+        targetAgent.assignTask(task).then(() => {
+          targetAgent!.executeCurrentTask();
+        }).catch((err) => {
+          console.error(`[agent-runtime] Failed to execute task on ${targetAgent!.name}:`, err);
+        });
+      }
+    }
+  }
+
+  public getAgent(agentId: string): AgentInstance | undefined {
+    return this.agents.get(agentId);
+  }
+
+  public listAgents(): AgentInstance[] {
+    return Array.from(this.agents.values());
+  }
+
+  public submitTask(opts: {
+    title: string;
+    description: string;
+    assignedAgentId?: string;
+    priority?: "low" | "medium" | "high";
+  }): OfficeTask {
+    const task = this.taskManager.createTask(opts);
+    this.dispatchPendingTasks();
+    return task;
+  }
+
+  public shutdown(): void {
+    if (this.dispatchTimer) {
+      clearInterval(this.dispatchTimer);
+      this.dispatchTimer = null;
+    }
+  }
+}

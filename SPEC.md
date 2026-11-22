@@ -457,10 +457,10 @@ The existing asset drawer / sidebar is preserved with minimal changes:
 Agents interact via standard AWN protocol. Example using the AWN MCP client:
 
 ```
-openclaw join_world star-office --alias "小明的龙虾" --avatar guest_role_3
-openclaw world_action set_state --state writing --detail "正在整理文档"
-openclaw world_action post_memo --content "今天完成了API重构"
-openclaw world_action set_state --state idle --detail "待命中"
+openclaw join_world star-office --alias "DevAgent" --avatar guest_role_3
+openclaw world_action set_state --state writing --detail "Organizing docs"
+openclaw world_action post_memo --content "Finished API refactoring today"
+openclaw world_action set_state --state idle --detail "Standing by"
 ```
 
 ### 8.2 Compatibility Shim (Optional)

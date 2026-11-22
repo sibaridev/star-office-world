@@ -101,7 +101,7 @@ fastify.get("/status", async () => {
 
 **Tests needed:** When a guest agent joins and sets state to "writing", verify:
 1. Star character stays on the sofa (idle animation)
-2. Bottom status bar still shows "[待命] Waiting..."
+2. Bottom status bar still shows "[idle] Waiting..."
 3. Guest agent's ⭐ sprite moves to writing area correctly
 
 ---

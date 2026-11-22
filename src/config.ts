@@ -33,6 +33,7 @@ export function loadConfig(overrides?: Partial<StarOfficeConfig>): StarOfficeCon
     geminiModel: overrides?.geminiModel ?? process.env["GEMINI_MODEL"] ?? "nanobanana-pro",
     language: overrides?.language ?? (process.env["STAR_OFFICE_LANG"] as "cn" | "en" | "jp") ?? "cn",
     mainAgentId: overrides?.mainAgentId ?? process.env["STAR_OFFICE_MAIN_AGENT_ID"],
+    enableAgentRuntime: overrides?.enableAgentRuntime ?? bool(process.env["ENABLE_AGENT_RUNTIME"], false),
   };
 }
 

@@ -115,7 +115,8 @@ export type SSEEventType =
   | "agent_offline"
   | "memo"
   | "background"
-  | "heartbeat";
+  | "heartbeat"
+  | "prompt_proposal_updated";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -138,4 +139,5 @@ export interface StarOfficeConfig {
   geminiModel?: string;
   language?: "cn" | "en" | "jp";
   mainAgentId?: string;
+  enableAgentRuntime?: boolean;
 }

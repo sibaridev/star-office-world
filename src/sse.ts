@@ -22,6 +22,9 @@ export class SSEManager {
     this.heartbeatTimer = setInterval(() => {
       this.broadcast("heartbeat", {});
     }, heartbeatIntervalMs);
+    if (typeof this.heartbeatTimer.unref === "function") {
+      this.heartbeatTimer.unref();
+    }
   }
 
   /**

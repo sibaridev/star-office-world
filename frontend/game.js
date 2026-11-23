@@ -492,15 +492,15 @@ function normalizeBackendAgentPayload(rawAgent, options = {}) {
     : alias
       ? alias
       : typeof rawAgent.name === 'string'
-      ? rawAgent.name
-      : 'Agent';
+        ? rawAgent.name
+        : 'Agent';
   const authStatus = typeof options.getAuthStatus === 'function'
     ? options.getAuthStatus(rawAgent)
     : typeof rawAgent.authStatus === 'string'
       ? rawAgent.authStatus
       : typeof rawAgent.online === 'boolean'
         ? rawAgent.online ? 'approved' : 'offline'
-      : 'pending';
+        : 'pending';
   const updatedAt = typeof options.getUpdatedAt === 'function'
     ? options.getUpdatedAt(rawAgent)
     : rawAgent.updated_at;
@@ -800,7 +800,7 @@ function create() {
   const plaqueY = LAYOUT.plaque.y;
   const plaqueBg = game.add.rectangle(plaqueX, plaqueY, LAYOUT.plaque.width, LAYOUT.plaque.height, 0x5d4037);
   plaqueBg.setStrokeStyle(3, 0x3e2723);
-  const plaqueText = game.add.text(plaqueX, plaqueY, 'Star's AI Office', {
+  const plaqueText = game.add.text(plaqueX, plaqueY, 'Star\'s AI Office', {
     fontFamily: 'ArkPixel, monospace',
     fontSize: '18px',
     fill: '#ffd700',

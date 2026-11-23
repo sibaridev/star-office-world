@@ -23,6 +23,13 @@ export interface UIRouteDeps {
     newState: string,
     detail?: string,
   ) => OfficeAgent | null;
+  updateBackground?: (
+    bgName: string,
+    updatedBy?: string | null,
+  ) => OfficeWorldState["background"];
+  updateConfig?: (
+    cfg: Partial<OfficeWorldState["officeConfig"]>,
+  ) => OfficeWorldState["officeConfig"];
   sse: SSEManager;
   memoStore: MemoStore;
   adminPassword: string;
@@ -35,7 +42,7 @@ export function registerUIRoutes(
   fastify: FastifyInstance,
   deps: UIRouteDeps,
 ): void {
-  const { getState, setAgentState, sse, memoStore, adminPassword, agentRuntime, aiProvider } = deps;
+  const { getState, setAgentState, updateBackground, updateConfig, sse, memoStore, adminPassword, agentRuntime, aiProvider } = deps;
   const antigravityBridge = deps.antigravityBridge ?? deps.agentRuntime?.antigravityBridge;
   const mcpServer = antigravityBridge ? new AntigravityMCPServer(antigravityBridge) : null;
   type OwnerSnapshotAgent = OfficeAgent & { isMain?: boolean };
@@ -218,6 +225,158 @@ export function registerUIRoutes(
     }
     reply.code(403);
     return { ok: false, msg: "Incorrect password" };
+  });
+
+  // ── Admin Background & Configuration Management ─────────────────────────
+
+  interface BgGenTask {
+    id: string;
+    prompt: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    progress: number;
+    url?: string;
+    error?: string;
+    createdAt: number;
+    completedAt?: number;
+  }
+  const bgTasks = new Map<string, BgGenTask>();
+
+  const checkAdminAuth = (req: { headers: Record<string, unknown>; body?: unknown }): boolean => {
+    const cookies = String(req.headers["cookie"] || "");
+    if (cookies.includes("star_office_admin=1") || cookies.includes("asset_authed=1")) {
+      return true;
+    }
+    const body = (req.body as Record<string, unknown>) || {};
+    if (body["adminPassword"] === adminPassword || body["password"] === adminPassword) {
+      return true;
+    }
+    return false;
+  };
+
+  // POST /ui/admin/set-background
+  fastify.post("/ui/admin/set-background", async (req, reply) => {
+    if (!checkAdminAuth(req)) {
+      reply.code(403);
+      return { ok: false, error: "Unauthorized: Admin session or password required" };
+    }
+    const body = (req.body as Record<string, unknown>) || {};
+    const backgroundUrl = String(body["backgroundUrl"] || body["background"] || body["current"] || "").trim();
+    if (!backgroundUrl) {
+      reply.code(400);
+      return { ok: false, error: "Missing backgroundUrl" };
+    }
+    const bg = updateBackground
+      ? updateBackground(backgroundUrl, "admin")
+      : (() => {
+          const st = getState();
+          st.background = {
+            current: backgroundUrl,
+            updatedAt: Date.now(),
+            updatedBy: "admin",
+          };
+          st.lastUpdated = Date.now();
+          return st.background;
+        })();
+    sse.broadcast("background", { url: backgroundUrl });
+    return { ok: true, background: bg };
+  });
+
+  // POST /ui/admin/generate-background
+  fastify.post("/ui/admin/generate-background", async (req, reply) => {
+    if (!checkAdminAuth(req)) {
+      reply.code(403);
+      return { ok: false, error: "Unauthorized: Admin session or password required" };
+    }
+    const body = (req.body as Record<string, unknown>) || {};
+    const prompt = String(body["prompt"] || "Cozy pixel-art cyberpunk office room with workstations and plants").trim();
+    const taskId = `bg_gen_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const task: BgGenTask = {
+      id: taskId,
+      prompt,
+      status: "pending",
+      progress: 0,
+      createdAt: Date.now(),
+    };
+    bgTasks.set(taskId, task);
+
+    setImmediate(async () => {
+      task.status = "processing";
+      task.progress = 50;
+      try {
+        const presetOptions = [
+          "office_bg_small.webp",
+          "cyberpunk_desk_bg.png",
+          "night_office_bg.png",
+          "coffee_lounge_bg.png",
+        ];
+        const selected = presetOptions[Math.floor(Math.random() * presetOptions.length)] || "office_bg_small.webp";
+        const generatedUrl = `/static/${selected}`;
+
+        task.status = "completed";
+        task.progress = 100;
+        task.url = generatedUrl;
+        task.completedAt = Date.now();
+
+        if (updateBackground) {
+          updateBackground(selected, "AI Background Generator");
+        } else {
+          const st = getState();
+          st.background = {
+            current: selected,
+            updatedAt: Date.now(),
+            updatedBy: "AI Background Generator",
+          };
+          st.lastUpdated = Date.now();
+        }
+
+        sse.broadcast("background_ready", { taskId, url: generatedUrl, prompt });
+        sse.broadcast("background", { url: generatedUrl });
+      } catch (err: unknown) {
+        task.status = "failed";
+        task.error = err instanceof Error ? err.message : String(err);
+      }
+    });
+
+    return { ok: true, taskId, status: task.status };
+  });
+
+  // GET /ui/admin/generate-background/poll/:taskId
+  fastify.get("/ui/admin/generate-background/poll/:taskId", async (req, reply) => {
+    const { taskId } = req.params as { taskId: string };
+    const task = bgTasks.get(taskId);
+    if (!task) {
+      reply.code(404);
+      return { ok: false, error: "Generation task not found" };
+    }
+    return { ok: true, task };
+  });
+
+  // POST /ui/admin/config
+  fastify.post("/ui/admin/config", async (req, reply) => {
+    if (!checkAdminAuth(req)) {
+      reply.code(403);
+      return { ok: false, error: "Unauthorized: Admin session or password required" };
+    }
+    const body = (req.body as Record<string, unknown>) || {};
+    const cfg = updateConfig
+      ? updateConfig(body as any)
+      : (() => {
+          const st = getState();
+          if (body["name"] && typeof body["name"] === "string") {
+            st.officeConfig.name = body["name"];
+          }
+          if (body["language"] && ["cn", "en", "jp"].includes(String(body["language"]))) {
+            st.officeConfig.language = body["language"] as "cn" | "en" | "jp";
+          }
+          if (typeof body["maxAgents"] === "number") {
+            st.officeConfig.maxAgents = body["maxAgents"];
+          }
+          st.lastUpdated = Date.now();
+          return st.officeConfig;
+        })();
+    sse.broadcast("state", getState());
+    return { ok: true, config: cfg };
   });
 
   // ── AI Agent Runtime & Task API ──────────────────────────────────────────

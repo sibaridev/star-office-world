@@ -74,16 +74,21 @@ openclaw world_action set_state --state idle
 
 ## Configuration
 
-Environment variables:
+Environment variables (platform-aligned `WORLD_*` keys take precedence over legacy `STAR_OFFICE_*` aliases as of `0.2.2`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `WORLD_ID` | (auto-derived slug) | Unique world identifier (platform-injected or derived from keypair slug) |
+| `WORLD_NAME` / `STAR_OFFICE_NAME` | `Star Office` | Office display name (`WORLD_NAME` takes precedence) |
+| `WORLD_PASSWORD` / `STAR_OFFICE_PASSWORD` | (empty) | AWN join password (`WORLD_PASSWORD` takes precedence) |
+| `MAX_AGENTS` | `20` | Maximum concurrent agents (`MAX_AGENTS` takes precedence) |
+| `WORLD_PUBLIC` | — | Public visibility setting (`isPublic` config support) |
 | `STAR_OFFICE_PORT` | `19000` | Server port |
-| `STAR_OFFICE_NAME` | `Star Office` | Office display name |
-| `STAR_OFFICE_PASSWORD` | (empty) | AWN join password |
 | `STAR_OFFICE_ADMIN_PASS` | `1234` | Browser admin password |
-| `STAR_OFFICE_PUBLIC_ADDR` | — | Public hostname for gateway |
-| `STAR_OFFICE_GATEWAY_URLS` | — | AWN gateway URLs (comma-sep) |
+| `STAR_OFFICE_PUBLIC_ADDR` | (auto-discovered) | Public hostname/IP for gateway announce (auto-detected if unset) |
+| `GATEWAY_URL` / `STAR_OFFICE_GATEWAY_URLS` | (production default) | AWN gateway URL(s) |
+| `STAR_OFFICE_MAIN_AGENT_ID` | — | Primary/main agent ID designation |
+| `STAR_OFFICE_LANG` | `cn` | Display language (`cn` \| `en` \| `jp`) |
 | `STAR_OFFICE_DATA_DIR` | `./data` | Data persistence directory |
 | `GEMINI_API_KEY` | — | For AI background generation |
 

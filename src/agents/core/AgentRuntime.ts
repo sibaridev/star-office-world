@@ -54,7 +54,20 @@ export class AgentRuntime {
     this.deps = deps;
     this.workspaceDir = path.join(deps.dataDir, "workspace");
     this.toolRegistry = new ToolRegistry();
-    this.toolGateway = new ToolExecutionGateway(this.toolRegistry, deps.dataDir);
+    this.toolGateway = new ToolExecutionGateway(this.toolRegistry, deps.dataDir, (provenance) => {
+      try {
+        deps.sse.broadcast("provenance_event", provenance);
+        deps.sse.broadcast("activity_monitor_updated", {
+          agentId: provenance.agentId,
+          taskId: provenance.taskId,
+          status: provenance.status,
+          tool: provenance.tool,
+          timestamp: provenance.completedAt || provenance.startedAt || Date.now(),
+        });
+      } catch (err) {
+        console.warn("[AgentRuntime] Failed to broadcast provenance SSE event:", err);
+      }
+    });
     this.agentRegistry = new AgentRegistry(deps.dataDir);
 
     this.promptRegistry = new PromptRegistry(deps.dataDir);

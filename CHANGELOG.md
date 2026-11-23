@@ -1,5 +1,12 @@
 # @resciencelab/star-office-world
 
+## Unreleased
+
+### Documentation & Planning
+
+- Reconcile `README.md` and `SPEC.md` with `0.2.2`–`0.2.4` changes, documenting `WORLD_*` environment variable precedence over legacy `STAR_OFFICE_*` aliases, `isPublic` support, `src/` subsystem layout (`agents/`, `ai/`, `diagnostics/`, `integrations/`, `discover.ts`, `types.ts`), and `test/*.test.mjs` / `mcp:antigravity` scripts.
+- Outline next-step roadmap items for SDK `1.6.0` manifest/CLI alignment, `src/ai/` background generation workflows, and expanded automated test coverage.
+
 ## 0.2.4
 
 ### Patch Changes

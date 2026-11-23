@@ -203,6 +203,23 @@ export function addMemo(
 }
 
 /**
+ * Update the active office background and bump timestamps.
+ */
+export function updateBackground(
+  state: OfficeWorldState,
+  bgName: string,
+  updatedBy: string | null = null,
+): OfficeWorldState["background"] {
+  state.background = {
+    current: bgName,
+    updatedAt: Date.now(),
+    updatedBy,
+  };
+  state.lastUpdated = Date.now();
+  return state.background;
+}
+
+/**
  * Get a sanitized copy of world state suitable for SSE/REST.
  * Strips internal fields and returns a frozen snapshot.
  */

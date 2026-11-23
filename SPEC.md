@@ -374,22 +374,25 @@ Browser admin is separate from AWN agent membership:
 star-office-world/
 ├── package.json
 ├── tsconfig.json
+├── world.yaml
 ├── src/
 │   ├── index.ts              # Entry point — createStarOfficeWorld()
-│   ├── config.ts             # StarOfficeConfig type & env loading
-│   ├── state.ts              # OfficeWorldState management
+│   ├── config.ts             # StarOfficeConfig & env precedence (WORLD_* / STAR_OFFICE_*)
+│   ├── state.ts              # OfficeWorldState management & persistence
 │   ├── hooks.ts              # WorldHooks implementation
-│   ├── actions.ts            # Action handlers (set_state, post_memo, etc.)
 │   ├── sse.ts                # SSE connection manager
-│   ├── ui-routes.ts          # Browser-facing REST + SSE routes
-│   ├── admin-routes.ts       # Admin endpoints (background, config)
+│   ├── ui-routes.ts          # Browser-facing REST, SSE & admin routes
 │   ├── memo-store.ts         # Daily memo persistence
-│   ├── background.ts         # Background management + Gemini integration
-│   └── utils.ts              # State normalization, area mapping
-├── frontend/                 # Copied from Star-Office-UI/frontend/
-│   ├── index.html            # Modified to use SSE instead of polling
+│   ├── types.ts              # Shared domain & config types
+│   ├── discover.ts           # Gateway / peer discovery helpers
+│   ├── agents/               # Agent lifecycle, tasks, meeting & workforce subsystems
+│   ├── ai/                   # AI / Gemini session & background generation helpers
+│   ├── diagnostics/          # Runtime diagnostics & health helpers
+│   └── integrations/         # External integrations (Antigravity Bridge & MCP server)
+├── frontend/                 # Pixel-art office frontend
+│   ├── index.html            # UI dashboard with Task Board, Meetings & Activity Monitor
 │   ├── game.js               # Modified: SSE event handlers
-│   ├── layout.js             # Unchanged
+│   ├── layout.js             # Layout definitions
 │   ├── vendor/               # Phaser.js
 │   ├── fonts/                # Pixel fonts
 │   └── *.webp, *.png         # Sprite assets
@@ -397,12 +400,10 @@ star-office-world/
 │   ├── world-identity/       # Ed25519 keypair
 │   ├── ledger/               # Event log (.jsonl)
 │   ├── memos/                # Daily memo files
+│   ├── meetings/             # Meeting archive & minutes
 │   └── backgrounds/          # Generated/uploaded backgrounds
 └── test/
-    ├── hooks.test.ts         # Action handler tests
-    ├── state.test.ts         # State machine tests
-    ├── sse.test.ts           # SSE delivery tests
-    └── integration.test.ts   # Full server integration tests
+    └── *.test.mjs            # Built Node test runner suite (npm test)
 ```
 
 ## 7. Frontend Modifications
@@ -529,34 +530,24 @@ GEMINI_MODEL=nanobanana-pro
 ## 10. Implementation Phases
 
 ### Phase 1: Core Server (MVP)
-- [ ] `createStarOfficeWorld()` with `createWorldServer`
-- [ ] World hooks: `onJoin`, `onAction` (set_state, heartbeat), `onLeave`
-- [ ] In-memory `OfficeWorldState` with area mapping
-- [ ] `GET /ui/state` REST endpoint
-- [ ] `GET /ui/events` SSE stream
-- [ ] Static file serving for frontend
-- [ ] Frontend: replace polling with SSE in `game.js`
-- [ ] Basic tests
+- [x] `createStarOfficeWorld()` with `createWorldServer` (`@resciencelab/agent-world-sdk` ^1.6.0)
+- [x] World hooks, state persistence, SSE stream, and frontend static serving
+- [x] Versioned Phaser sprite frames & texture fixes (`0.2.4`)
 
 ### Phase 2: Memo & Admin
-- [ ] `post_memo` action + daily memo persistence
-- [ ] `GET /ui/memo/yesterday` + `GET /ui/memo/today`
-- [ ] Admin login + session auth
-- [ ] Admin config endpoint
-- [ ] Background upload endpoint
+- [x] Daily memo persistence & live memo feed (`0.1.0`)
+- [x] Admin login, session auth, background & config management
+- [x] Agent Activity Monitor, Workforce Management & Prompt Governance
 
-### Phase 3: AI Background Generation
-- [ ] Gemini integration (port from Flask)
-- [ ] Async task system for generation
-- [ ] Poll endpoint for progress
-- [ ] Background history / favorites
+### Phase 3: AI Background Generation & Multi-Agent Collaboration
+- [x] Multi-agent autonomous meeting engine & TaskManager integration
+- [x] Google Antigravity bridge & MCP server integration
+- [ ] Async task polling for custom image background generation pipeline
 
-### Phase 4: Compatibility & Polish
-- [ ] Compat shim for `set_state.py` and `office-agent-push.py`
-- [ ] Agent Card (`.well-known/agent.json`)
-- [ ] Electron desktop-pet wrapper updates
-- [ ] i18n for SSE event messages
-- [ ] Production hardening (rate limits, CORS, CSP)
+### Phase 4: Compatibility, Integrations & Hardening
+- [x] Platform env alignment (`WORLD_*` precedence), auto-derived slug (`0.2.1`), IP discovery (`0.2.0`), Antigravity MCP entry (`src/integrations/antigravity/mcp/mcp-entry.js`)
+- [x] Self-service project editing playbook & quality standards (`docs/SELF_SERVICE_PROJECT_EDITING_PLAYBOOK.md`)
+- [ ] Complete `awn` CLI (`v1.4.0+`) / manifest endpoint (`v1.5.0+`) alignment and expanded production security hardening
 
 ## 11. Dependencies
 

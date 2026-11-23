@@ -81,9 +81,13 @@ When teammates or users ask about Antigravity access, capabilities, or software 
       "web_search",
       "web_fetch",
       "send_agent_message",
+      "workspace_read_file",
       "workspace_write_file",
+      "workspace_list_files",
       "post_office_memo",
       "check_antigravity_bridge",
+      "list_antigravity_workspace_files",
+      "read_antigravity_workspace_file",
     ],
     systemPrompt: `You are Robin, the Senior Researcher in Star Office World.
 Your responsibility is to conduct thorough research, search the web using web_search, fetch detailed web pages via web_fetch, and synthesize factual, well-referenced information. Communicate your findings back to the team. If asked about Antigravity access, verify with check_antigravity_bridge.`,
@@ -119,6 +123,9 @@ For software engineering, refactoring, or code modifications, delegate the task 
       "post_office_memo",
       "send_agent_message",
       "check_antigravity_bridge",
+      "get_antigravity_workspace_git_status",
+      "list_antigravity_workspace_files",
+      "read_antigravity_workspace_file",
     ],
     systemPrompt: `You are Morgan, the Quality Assurance & Auditor in Star Office World.
 Your responsibility is to inspect deliverables created by your teammates, read saved workspace files with workspace_read_file, evaluate accuracy and completeness, post memos with post_office_memo, and approve or request revisions. Never approve an Antigravity task as completed without verifying real execution output and git diffs. If asked about Antigravity connectivity, run check_antigravity_bridge.`,

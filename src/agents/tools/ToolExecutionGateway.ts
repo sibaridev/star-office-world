@@ -15,10 +15,16 @@ export class ToolExecutionGateway {
   private toolRegistry: ToolRegistry;
   private provenanceLogPath: string;
   private provenanceRecords: ToolExecutionProvenance[] = [];
+  private onProvenance?: (provenance: ToolExecutionProvenance) => void;
 
-  constructor(toolRegistry: ToolRegistry, dataDir: string) {
+  constructor(
+    toolRegistry: ToolRegistry,
+    dataDir: string,
+    onProvenance?: (provenance: ToolExecutionProvenance) => void
+  ) {
     this.toolRegistry = toolRegistry;
     this.provenanceLogPath = path.join(dataDir, "provenance", "executions.jsonl");
+    this.onProvenance = onProvenance;
     fs.mkdirSync(path.dirname(this.provenanceLogPath), { recursive: true });
   }
 
@@ -165,16 +171,24 @@ export class ToolExecutionGateway {
       return { authorized: false, error: `Agent ${context.agentName} lacks 'canCommunicateWithPeers' permission.` };
     }
 
-    // D. Workspace boundary verification
+    // D. Workspace boundary verification & Path Traversal Guard
     const wsId = String(args["workspaceId"] || context.workspaceId || "");
+    const filePath = args["filePath"] ? String(args["filePath"]) : undefined;
+    if (filePath && (filePath.includes("..") || filePath.startsWith("/") || filePath.startsWith("\\"))) {
+      if (!context.antigravityBridge?.workspaces || !wsId || !context.antigravityBridge.workspaces.isAuthorizedPath(wsId, filePath)) {
+        return {
+          authorized: false,
+          error: `[SECURITY_VIOLATION]: Path traversal or unauthorized path: '${filePath}' escapes authorized boundaries.`,
+        };
+      }
+    }
     if (context.antigravityBridge?.workspaces && wsId) {
-      const filePath = args["filePath"] ? String(args["filePath"]) : undefined;
       if (filePath) {
         const isAuth = context.antigravityBridge.workspaces.isAuthorizedPath(wsId, filePath);
         if (!isAuth) {
           return {
             authorized: false,
-            error: `Path traversal or unauthorized path: '${filePath}' is outside workspace '${wsId}'.`,
+            error: `[SECURITY_VIOLATION]: Path traversal or unauthorized path: '${filePath}' is outside workspace '${wsId}'.`,
           };
         }
       }
@@ -189,6 +203,11 @@ export class ToolExecutionGateway {
       fs.appendFileSync(this.provenanceLogPath, JSON.stringify(rec) + "\n", "utf8");
     } catch (err) {
       console.warn("[ToolExecutionGateway] Failed to append provenance record:", err);
+    }
+    try {
+      this.onProvenance?.(rec);
+    } catch (err) {
+      console.warn("[ToolExecutionGateway] Failed to invoke onProvenance listener:", err);
     }
   }
 

@@ -14,6 +14,7 @@ import {
   createInitialState,
   getPublicState,
   updateAgentState,
+  updateBackground,
   initSnapshotDir,
   loadAgentsSnapshot,
   rebuildRooms,
@@ -117,6 +118,14 @@ export async function createStarOfficeWorld(
           getState: () => getPublicState(state),
           setAgentState: (agentId, newState, detail) =>
             updateAgentState(state, agentId, newState, detail),
+          updateBackground: (bg, by) => updateBackground(state, bg, by),
+          updateConfig: (cfg) => {
+            if (cfg.name) state.officeConfig.name = cfg.name;
+            if (cfg.language) state.officeConfig.language = cfg.language;
+            if (typeof cfg.maxAgents === "number") state.officeConfig.maxAgents = cfg.maxAgents;
+            state.lastUpdated = Date.now();
+            return state.officeConfig;
+          },
           sse,
           memoStore,
           adminPassword: config.adminPassword ?? "1234",

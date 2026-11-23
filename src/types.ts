@@ -121,7 +121,10 @@ export type SSEEventType =
   | "meeting_message"
   | "meeting_speaker_changed"
   | "meeting_status_changed"
-  | "meeting_concluded";
+  | "meeting_concluded"
+  | "provenance_event"
+  | "activity_monitor_updated"
+  | "background_ready";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 

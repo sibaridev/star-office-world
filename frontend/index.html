@@ -1237,6 +1237,7 @@
                 <button id="btn-state-error" onclick="setState('error','Alerting')">Alert</button>
                 <button id="btn-open-drawer" onclick="toggleAssetDrawer()">Decorate Room</button>
                 <button id="btn-open-tasks" onclick="toggleTaskBoard(true)" style="grid-column:1/-1; background:#1e293b; color:#f4c430; border:2px solid #f4c430; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:2px;">📋 Task Board</button>
+                <button id="btn-open-meeting" onclick="openMeetingView()" style="grid-column:1/-1; background:#0f172a; color:#38bdf8; border:2px solid #38bdf8; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:4px;">🎙️ Team Meeting</button>
             </div>
         </div>
 
@@ -4801,6 +4802,10 @@ function toggleBrokerPanel() {
         }
 
         async function loadTaskBoardData() {
+            if (currentTaskBoardTab === 'meetings') {
+                await loadMeetingData();
+                return;
+            }
             try {
                 // 1. Health & Session Status
                 const healthRes = await fetch('/api/gemini/health', { cache: 'no-store' });
@@ -4979,20 +4984,24 @@ function toggleBrokerPanel() {
             const viewAg = document.getElementById('tb-view-antigravity');
             const viewPr = document.getElementById('tb-view-prompts');
             const viewWf = document.getElementById('tb-view-workforce');
+            const viewMt = document.getElementById('tb-view-meetings');
             const tabGen = document.getElementById('tb-tab-general');
             const tabAg = document.getElementById('tb-tab-antigravity');
             const tabPr = document.getElementById('tb-tab-prompts');
             const tabWf = document.getElementById('tb-tab-workforce');
+            const tabMt = document.getElementById('tb-tab-meetings');
 
             // Reset all tabs
             if (viewGen) viewGen.style.display = 'none';
             if (viewAg) viewAg.style.display = 'none';
             if (viewPr) viewPr.style.display = 'none';
             if (viewWf) viewWf.style.display = 'none';
+            if (viewMt) viewMt.style.display = 'none';
             if (tabGen) { tabGen.style.background = '#1e293b'; tabGen.style.color = '#94a3b8'; tabGen.style.borderColor = '#475569'; }
             if (tabAg) { tabAg.style.background = '#1e293b'; tabAg.style.color = '#94a3b8'; tabAg.style.borderColor = '#475569'; }
             if (tabPr) { tabPr.style.background = '#1e293b'; tabPr.style.color = '#94a3b8'; tabPr.style.borderColor = '#475569'; }
             if (tabWf) { tabWf.style.background = '#1e293b'; tabWf.style.color = '#94a3b8'; tabWf.style.borderColor = '#475569'; }
+            if (tabMt) { tabMt.style.background = '#1e293b'; tabMt.style.color = '#94a3b8'; tabMt.style.borderColor = '#475569'; }
 
             if (tab === 'antigravity') {
                 if (viewAg) viewAg.style.display = 'flex';
@@ -5006,11 +5015,278 @@ function toggleBrokerPanel() {
                 if (viewWf) viewWf.style.display = 'flex';
                 if (tabWf) { tabWf.style.background = '#059669'; tabWf.style.color = '#fff'; tabWf.style.borderColor = '#34d399'; }
                 loadWorkforceData();
+            } else if (tab === 'meetings') {
+                if (viewMt) viewMt.style.display = 'flex';
+                if (tabMt) { tabMt.style.background = '#0284c7'; tabMt.style.color = '#fff'; tabMt.style.borderColor = '#38bdf8'; }
+                loadMeetingData();
             } else {
                 if (viewGen) viewGen.style.display = 'flex';
                 if (tabGen) { tabGen.style.background = '#0284c7'; tabGen.style.color = '#fff'; tabGen.style.borderColor = '#38bdf8'; }
                 loadTaskBoardData();
             }
+        }
+
+        function openMeetingView() {
+            toggleTaskBoard(true);
+            switchTaskBoardTab('meetings');
+        }
+
+        let meetingPollTimer = null;
+        let activeMeetingId = null;
+
+        async function loadMeetingData() {
+            try {
+                // 1. Check for Active Meeting
+                const activeRes = await fetch('/api/meetings/active', { cache: 'no-store' });
+                const activeData = activeRes.ok ? await activeRes.json() : null;
+                const meeting = activeData && activeData.ok ? activeData.meeting : null;
+
+                const statusBadge = document.getElementById('meeting-status-badge');
+                const activeSection = document.getElementById('meeting-active-section');
+                const createSection = document.getElementById('meeting-create-section');
+                const minutesSection = document.getElementById('meeting-minutes-section');
+                const concludeBtn = document.getElementById('btn-conclude-meeting');
+
+                if (meeting && (meeting.status === 'IN_PROGRESS' || meeting.status === 'CONCLUDING')) {
+                    activeMeetingId = meeting.id;
+                    if (statusBadge) {
+                        statusBadge.textContent = meeting.status === 'CONCLUDING' ? 'Concluding...' : '● Live Meeting';
+                        statusBadge.style.background = '#15803d';
+                        statusBadge.style.color = '#fff';
+                    }
+                    if (concludeBtn) concludeBtn.style.display = 'block';
+                    if (activeSection) activeSection.style.display = 'flex';
+                    if (createSection) createSection.style.display = 'none';
+                    if (minutesSection) minutesSection.style.display = 'none';
+
+                    // Update Title & Agenda
+                    const tEl = document.getElementById('active-meeting-title');
+                    const aEl = document.getElementById('active-meeting-agenda');
+                    const sEl = document.getElementById('active-meeting-speaker');
+                    const turnEl = document.getElementById('active-meeting-turn');
+                    if (tEl) tEl.textContent = meeting.title;
+                    if (aEl) aEl.textContent = meeting.agenda;
+                    if (sEl) sEl.textContent = meeting.currentSpeakerId || 'Alex (Lead)';
+                    if (turnEl) turnEl.textContent = `Turn #${meeting.turnCount}`;
+
+                    // Render Transcript
+                    const box = document.getElementById('meeting-transcript-box');
+                    if (box && meeting.messages) {
+                        box.innerHTML = meeting.messages.map(m => {
+                            const isHuman = m.senderId === 'human_owner';
+                            const isLead = m.senderId === 'agent_coordinator';
+                            const bubbleBg = isHuman ? '#1e3a8a' : isLead ? '#1e293b' : '#0f172a';
+                            const borderColor = isHuman ? '#3b82f6' : isLead ? '#38bdf8' : '#334155';
+                            const timeStr = new Date(m.timestamp).toLocaleTimeString();
+
+                            return `
+                                <div style="display:flex; gap:10px; align-items:flex-start;">
+                                    <div style="width:36px; height:36px; border-radius:50%; background:#1e293b; border:2px solid ${borderColor}; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+                                        <img src="${m.senderAvatar}.png" onerror="this.src='guest_role_1.png'" style="width:100%; height:100%; object-fit:cover;" />
+                                    </div>
+                                    <div style="flex:1; background:${bubbleBg}; border:1px solid ${borderColor}; border-radius:8px; padding:10px 14px;">
+                                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                            <div style="display:flex; align-items:center; gap:8px;">
+                                                <span style="font-weight:bold; color:${isHuman ? '#93c5fd' : isLead ? '#7dd3fc' : '#f8fafc'}; font-size:12px;">${m.senderName}</span>
+                                                <span style="font-size:10px; padding:1px 6px; border-radius:4px; background:#020617; color:#94a3b8;">${m.senderRole}</span>
+                                                ${m.callingOnAgentId ? `<span style="font-size:10px; padding:1px 6px; border-radius:4px; background:#0369a1; color:#fff;">👉 Calling on: ${m.callingOnAgentId}</span>` : ''}
+                                            </div>
+                                            <span style="font-size:10px; color:#64748b;">${timeStr}</span>
+                                        </div>
+                                        <div style="font-size:12px; color:#f1f5f9; line-height:1.5; white-space:pre-wrap;">${m.content}</div>
+                                        ${m.thought ? `<details style="margin-top:6px; font-size:10px; color:#94a3b8;"><summary style="cursor:pointer; color:#64748b;">💭 Moderation reasoning</summary><div style="margin-top:2px; padding:4px 8px; background:#020617; border-radius:4px; font-style:italic;">${m.thought}</div></details>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+
+                        box.scrollTop = box.scrollHeight;
+                    }
+                } else if (meeting && meeting.status === 'CONCLUDED' && meeting.minutes) {
+                    activeMeetingId = null;
+                    if (statusBadge) {
+                        statusBadge.textContent = 'Meeting Concluded';
+                        statusBadge.style.background = '#059669';
+                        statusBadge.style.color = '#fff';
+                    }
+                    if (concludeBtn) concludeBtn.style.display = 'none';
+                    if (activeSection) activeSection.style.display = 'none';
+                    if (createSection) createSection.style.display = 'none';
+                    if (minutesSection) {
+                        minutesSection.style.display = 'flex';
+                        const sumEl = document.getElementById('meeting-minutes-summary');
+                        const decEl = document.getElementById('meeting-minutes-decisions');
+                        const actEl = document.getElementById('meeting-minutes-actions');
+                        if (sumEl) sumEl.textContent = meeting.minutes.summary;
+                        if (decEl) decEl.innerHTML = (meeting.minutes.decisions || []).map(d => `<li>${d}</li>`).join('');
+                        if (actEl) actEl.innerHTML = (meeting.minutes.actionItems || []).map(a => `
+                            <div style="background:#131c38; border:1px solid #334155; border-radius:4px; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <span style="font-weight:bold; color:#7dd3fc; font-size:12px;">${a.title}</span>
+                                    <div style="font-size:11px; color:#cbd5e1; margin-top:2px;">${a.description}</div>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="background:#0284c7; color:#fff; font-size:10px; padding:2px 8px; border-radius:4px;">👤 ${a.assignedAgentId}</span>
+                                    ${a.taskId ? `<span style="background:#15803d; color:#fff; font-size:10px; padding:2px 8px; border-radius:4px;">Task: ${a.taskId}</span>` : ''}
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    activeMeetingId = null;
+                    if (statusBadge) {
+                        statusBadge.textContent = 'No Active Meeting';
+                        statusBadge.style.background = '#334155';
+                        statusBadge.style.color = '#94a3b8';
+                    }
+                    if (concludeBtn) concludeBtn.style.display = 'none';
+                    if (activeSection) activeSection.style.display = 'none';
+                    if (minutesSection) minutesSection.style.display = 'none';
+                    if (createSection) createSection.style.display = 'flex';
+
+                    // Populate attendees checkboxes
+                    const grid = document.getElementById('new-meeting-attendees-grid');
+                    if (grid && grid.children.length === 0) {
+                        const agentsRes = await fetch('/ui/agents', { cache: 'no-store' });
+                        if (agentsRes.ok) {
+                            const data = await agentsRes.json();
+                            const agents = data.agents || [];
+                            grid.innerHTML = agents.map(a => `
+                                <label style="font-size:11px; display:flex; align-items:center; gap:6px; background:#0f172a; border:1px solid #334155; padding:4px 8px; border-radius:4px; color:#e2e8f0; cursor:pointer;">
+                                    <input type="checkbox" class="meeting-attendee-check" value="${a.agentId}" ${a.agentId === 'agent_coordinator' ? 'checked disabled' : 'checked'} />
+                                    <span>${a.alias} (${a.agentId})</span>
+                                </label>
+                            `).join('');
+                        }
+                    }
+                }
+
+                // 2. Fetch Meeting Archive
+                const listRes = await fetch('/api/meetings', { cache: 'no-store' });
+                if (listRes.ok) {
+                    const listData = await listRes.json();
+                    const archiveList = document.getElementById('meeting-archive-list');
+                    if (archiveList && listData.meetings) {
+                        if (listData.meetings.length === 0) {
+                            archiveList.innerHTML = '<div style="color:#64748b; font-size:11px; padding:10px; text-align:center;">No past meetings recorded yet.</div>';
+                        } else {
+                            archiveList.innerHTML = listData.meetings.map(m => `
+                                <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px 14px; display:flex; flex-direction:column; gap:6px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-weight:bold; color:#7dd3fc; font-size:13px;">${m.title}</span>
+                                        <span style="font-size:10px; padding:2px 6px; border-radius:4px; background:${m.status === 'CONCLUDED' ? '#065f46' : '#1e3a8a'}; color:#fff;">${m.status}</span>
+                                    </div>
+                                    <div style="font-size:11px; color:#94a3b8;">Agenda: ${m.agenda}</div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#64748b;">
+                                        <span>Turns: ${m.turnCount} · Messages: ${m.messages ? m.messages.length : 0}</span>
+                                        <span>${new Date(m.createdAt).toLocaleDateString()} ${new Date(m.createdAt).toLocaleTimeString()}</span>
+                                    </div>
+                                    ${m.minutes ? `
+                                        <div style="background:#020617; border:1px solid #1e293b; border-radius:4px; padding:8px; margin-top:4px; font-size:11px; color:#cbd5e1;">
+                                            <div style="color:#34d399; font-weight:bold; margin-bottom:2px;">Summary:</div>
+                                            <div>${m.minutes.summary}</div>
+                                            <div style="color:#fde047; font-weight:bold; margin-top:4px;">Action Items (${m.minutes.actionItems ? m.minutes.actionItems.length : 0}):</div>
+                                            <ul style="margin:2px 0 0 16px; padding:0;">
+                                                ${(m.minutes.actionItems || []).map(item => `<li><strong>${item.assignedAgentId}:</strong> ${item.title}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('');
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[ui] Error loading meeting data:', err);
+            }
+        }
+
+        async function startMeetingFromUI() {
+            const titleInput = document.getElementById('new-meeting-title');
+            const agendaInput = document.getElementById('new-meeting-agenda');
+            const noteInput = document.getElementById('new-meeting-note');
+            const statusEl = document.getElementById('meeting-create-status');
+
+            const title = titleInput ? titleInput.value.trim() : '';
+            const agenda = agendaInput ? agendaInput.value.trim() : '';
+            const initialNote = noteInput ? noteInput.value.trim() : '';
+
+            if (!title || !agenda) {
+                if (statusEl) statusEl.textContent = 'Please enter both Title and Agenda';
+                return;
+            }
+
+            const attendees = ['agent_coordinator'];
+            const checkboxes = document.querySelectorAll('.meeting-attendee-check');
+            checkboxes.forEach(cb => {
+                if (cb.checked && cb.value && !attendees.includes(cb.value)) {
+                    attendees.push(cb.value);
+                }
+            });
+
+            if (statusEl) statusEl.textContent = 'Starting meeting...';
+
+            try {
+                const res = await fetch('/api/meetings/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, agenda, participantIds: attendees, initialNote }),
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    if (statusEl) statusEl.textContent = '';
+                    if (titleInput) titleInput.value = '';
+                    if (agendaInput) agendaInput.value = '';
+                    if (noteInput) noteInput.value = '';
+                    await loadMeetingData();
+                } else {
+                    if (statusEl) statusEl.textContent = data.error || 'Failed to start meeting';
+                }
+            } catch (err) {
+                if (statusEl) statusEl.textContent = err.message || 'Network error';
+            }
+        }
+
+        async function sendMeetingMessageFromUI() {
+            const input = document.getElementById('meeting-human-input');
+            const content = input ? input.value.trim() : '';
+            if (!content || !activeMeetingId) return;
+
+            input.value = '';
+            try {
+                await fetch(`/api/meetings/${activeMeetingId}/speak`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content }),
+                });
+                await loadMeetingData();
+            } catch (err) {
+                console.error('[ui] Failed to send meeting message:', err);
+            }
+        }
+
+        async function concludeMeetingFromUI() {
+            if (!activeMeetingId) return;
+            if (!confirm('Are you sure you want Alex to conclude the meeting and generate minutes & action items?')) return;
+
+            try {
+                const res = await fetch(`/api/meetings/${activeMeetingId}/conclude`, { method: 'POST' });
+                if (res.ok) {
+                    await loadMeetingData();
+                }
+            } catch (err) {
+                console.error('[ui] Failed to conclude meeting:', err);
+            }
+        }
+
+        function resetMeetingUI() {
+            const activeSection = document.getElementById('meeting-active-section');
+            const minutesSection = document.getElementById('meeting-minutes-section');
+            const createSection = document.getElementById('meeting-create-section');
+            if (activeSection) activeSection.style.display = 'none';
+            if (minutesSection) minutesSection.style.display = 'none';
+            if (createSection) createSection.style.display = 'flex';
+            loadMeetingData();
         }
 
         // ── Phase 13: Prompt Introspection & Governance UI ─────────────────
@@ -6061,6 +6337,7 @@ function toggleBrokerPanel() {
           <button id="tb-tab-antigravity" onclick="switchTaskBoardTab('antigravity')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Antigravity Bridge 🚀</button>
           <button id="tb-tab-prompts" onclick="switchTaskBoardTab('prompts')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Prompt Governance 🧠</button>
           <button id="tb-tab-workforce" onclick="switchTaskBoardTab('workforce')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Agent Workforce 👥</button>
+          <button id="tb-tab-meetings" onclick="switchTaskBoardTab('meetings')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Team Meetings 🎙️</button>
           <button class="task-board-close-btn" onclick="toggleTaskBoard(false)" style="background:#334155; color:#fff; border:none; padding:4px 10px; cursor:pointer; border-radius:4px; font-family:ArkPixel,monospace;">✕</button>
         </div>
       </div>
@@ -6293,6 +6570,93 @@ function toggleBrokerPanel() {
         <div>
           <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">👥 Registered Autonomous AI Agents</div>
           <div id="wf-agents-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px;"></div>
+        </div>
+      </div>
+
+      <!-- TEAM MEETINGS VIEW -->
+      <div id="tb-view-meetings" style="display:none; padding:16px 20px; overflow-y:auto; flex:1; flex-direction:column; gap:16px;">
+        <!-- Header & Controls -->
+        <div style="background:#131c38; border:1px solid #334155; border-radius:6px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:15px; font-weight:bold; color:#38bdf8;">🎙️ Star Office Multi-Agent Conference</span>
+            <span id="meeting-status-badge" style="font-size:11px; padding:3px 8px; border-radius:12px; background:#334155; color:#94a3b8;">No Active Meeting</span>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button onclick="loadMeetingData()" style="background:transparent; border:1px solid #475569; color:#94a3b8; font-size:11px; padding:4px 10px; cursor:pointer; border-radius:4px;">↻ Refresh</button>
+            <button id="btn-conclude-meeting" onclick="concludeMeetingFromUI()" style="display:none; background:#ef4444; color:#fff; border:none; font-weight:bold; font-size:11px; padding:5px 12px; cursor:pointer; border-radius:4px;">⏹️ Conclude Meeting</button>
+          </div>
+        </div>
+
+        <!-- Section 1: Active Meeting Session -->
+        <div id="meeting-active-section" style="display:none; flex-direction:column; gap:12px;">
+          <div style="background:#0f172a; border:1px solid #38bdf8; border-radius:6px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+              <div id="active-meeting-title" style="font-size:14px; font-weight:bold; color:#f8fafc;"></div>
+              <div id="active-meeting-agenda" style="font-size:12px; color:#94a3b8; margin-top:2px;"></div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:#94a3b8;">Floor:</span>
+              <span id="active-meeting-speaker" style="background:#0284c7; color:#fff; font-size:11px; font-weight:bold; padding:3px 10px; border-radius:12px; border:1px solid #38bdf8;">Alex (Lead)</span>
+              <span id="active-meeting-turn" style="background:#1e293b; color:#cbd5e1; font-size:10px; padding:3px 8px; border-radius:10px;">Turn #1</span>
+            </div>
+          </div>
+
+          <div id="meeting-transcript-box" style="background:#020617; border:1px solid #334155; border-radius:6px; padding:14px; min-height:280px; max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:12px;"></div>
+
+          <div style="background:#131c38; border:1px solid #334155; border-radius:6px; padding:10px 14px; display:flex; gap:10px; align-items:center;">
+            <input id="meeting-human-input" type="text" placeholder="Speak as Owner (ask a question or steer debate)..." onkeydown="if(event.key==='Enter')sendMeetingMessageFromUI()" style="flex:1; background:#0f172a; border:1px solid #475569; color:#fff; padding:8px 12px; font-family:ArkPixel,monospace; border-radius:4px; font-size:12px;" />
+            <button onclick="sendMeetingMessageFromUI()" style="background:#38bdf8; color:#0f172a; font-weight:bold; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace; font-size:12px;">🗣️ Speak</button>
+          </div>
+        </div>
+
+        <!-- Section 2: Concluded Meeting Minutes -->
+        <div id="meeting-minutes-section" style="display:none; background:#0f172a; border:2px solid #10b981; border-radius:6px; padding:16px; flex-direction:column; gap:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:15px; font-weight:bold; color:#34d399;">📜 Official Meeting Minutes & Decisions</span>
+            <button onclick="resetMeetingUI()" style="background:#1e293b; color:#38bdf8; border:1px solid #38bdf8; padding:3px 10px; border-radius:4px; font-size:11px; cursor:pointer;">Start New Meeting</button>
+          </div>
+          <div id="meeting-minutes-summary" style="font-size:12px; color:#e2e8f0; line-height:1.5;"></div>
+          <div>
+            <span style="font-size:12px; font-weight:bold; color:#7dd3fc;">Key Decisions:</span>
+            <ul id="meeting-minutes-decisions" style="margin:4px 0 0 16px; padding:0; font-size:12px; color:#cbd5e1;"></ul>
+          </div>
+          <div>
+            <span style="font-size:12px; font-weight:bold; color:#fde047;">Spawned Action Items (Assigned Tasks):</span>
+            <div id="meeting-minutes-actions" style="display:flex; flex-direction:column; gap:6px; margin-top:4px;"></div>
+          </div>
+        </div>
+
+        <!-- Section 3: Call Meeting Form -->
+        <div id="meeting-create-section" style="background:#131c38; border:1px solid #334155; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:12px;">
+          <div style="font-size:14px; font-weight:bold; color:#38bdf8;">📢 Call a Team Meeting</div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div>
+              <span style="font-size:11px; color:#94a3b8;">Meeting Title:</span>
+              <input id="new-meeting-title" type="text" placeholder="e.g., Q4 Engineering Priorities & Platform Architecture" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:8px 12px; font-family:ArkPixel,monospace; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box;" />
+            </div>
+            <div>
+              <span style="font-size:11px; color:#94a3b8;">Meeting Agenda & Questions for Team:</span>
+              <textarea id="new-meeting-agenda" rows="3" placeholder="What key decisions or challenges should Alex and the team address in this meeting?" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:8px 12px; font-family:ArkPixel,monospace; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box; resize:vertical;"></textarea>
+            </div>
+            <div>
+              <span style="font-size:11px; color:#94a3b8;">Initial Briefing / Directive from Owner (Optional):</span>
+              <input id="new-meeting-note" type="text" placeholder="e.g., Please focus on Antigravity reliability and test coverage" style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:8px 12px; font-family:ArkPixel,monospace; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box;" />
+            </div>
+            <div>
+              <span style="font-size:11px; color:#94a3b8;">Participating Attendees:</span>
+              <div id="new-meeting-attendees-grid" style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+              <span id="meeting-create-status" style="font-size:12px; color:#ef4444;"></span>
+              <button onclick="startMeetingFromUI()" style="background:#0284c7; color:#fff; font-weight:bold; border:none; padding:8px 20px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace; font-size:13px;">🚀 Start Meeting</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Meeting Archive -->
+        <div>
+          <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">📁 Meeting Archive & Historical Minutes</div>
+          <div id="meeting-archive-list" style="display:flex; flex-direction:column; gap:10px;"></div>
         </div>
       </div>
 

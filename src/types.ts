@@ -116,7 +116,12 @@ export type SSEEventType =
   | "memo"
   | "background"
   | "heartbeat"
-  | "prompt_proposal_updated";
+  | "prompt_proposal_updated"
+  | "meeting_started"
+  | "meeting_message"
+  | "meeting_speaker_changed"
+  | "meeting_status_changed"
+  | "meeting_concluded";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 

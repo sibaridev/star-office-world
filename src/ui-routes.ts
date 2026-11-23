@@ -964,4 +964,105 @@ export function registerUIRoutes(
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
+
+  // ── Meeting System Endpoints ───────────────────────────────────────────────
+
+  fastify.get("/api/meetings/active", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const meeting = agentRuntime.meetingEngine.getActiveMeeting();
+    return { ok: true, meeting };
+  });
+
+  fastify.get("/api/meetings", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const meetings = agentRuntime.meetingEngine.listMeetings();
+    return { ok: true, meetings };
+  });
+
+  fastify.get("/api/meetings/:id", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { id: string };
+    const meeting = agentRuntime.meetingEngine.getMeeting(params.id);
+    if (!meeting) {
+      reply.code(404);
+      return { ok: false, error: `Meeting ${params.id} not found` };
+    }
+    return { ok: true, meeting };
+  });
+
+  fastify.post("/api/meetings/start", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const body = (req.body as any) ?? {};
+    if (!body.title || typeof body.title !== "string" || !body.title.trim()) {
+      reply.code(400);
+      return { ok: false, error: "Meeting 'title' is required" };
+    }
+    if (!body.agenda || typeof body.agenda !== "string" || !body.agenda.trim()) {
+      reply.code(400);
+      return { ok: false, error: "Meeting 'agenda' is required" };
+    }
+
+    try {
+      const meeting = await agentRuntime.meetingEngine.startMeeting({
+        title: body.title,
+        agenda: body.agenda,
+        participantIds: Array.isArray(body.participantIds) ? body.participantIds : undefined,
+        initialNote: typeof body.initialNote === "string" ? body.initialNote : undefined,
+      });
+      reply.code(201);
+      return { ok: true, meeting };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.post("/api/meetings/:id/speak", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { id: string };
+    const body = (req.body as any) ?? {};
+    const content = typeof body.content === "string" ? body.content.trim() : "";
+    if (!content) {
+      reply.code(400);
+      return { ok: false, error: "Message 'content' is required" };
+    }
+
+    try {
+      const message = await agentRuntime.meetingEngine.postHumanMessage(params.id, content);
+      return { ok: true, message };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  fastify.post("/api/meetings/:id/conclude", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { id: string };
+    try {
+      const minutes = await agentRuntime.meetingEngine.concludeMeeting(params.id);
+      return { ok: true, minutes };
+    } catch (err: unknown) {
+      reply.code(400);
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 }

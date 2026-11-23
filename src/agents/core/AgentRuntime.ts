@@ -22,6 +22,7 @@ import { PromptProposalManager } from "../prompts/PromptProposalManager.js";
 import { AgentConfigManager } from "../management/AgentConfigManager.js";
 import { AgentTestPlayground } from "../management/AgentTestPlayground.js";
 import type { FullAgentConfig, AgentLifecycleStatus } from "../management/types.js";
+import { MeetingEngine } from "../meeting/MeetingEngine.js";
 
 export interface AgentRuntimeDeps {
   officeState: OfficeWorldState;
@@ -42,6 +43,7 @@ export class AgentRuntime {
   public readonly proposalManager: PromptProposalManager;
   public readonly configManager: AgentConfigManager;
   public readonly testPlayground: AgentTestPlayground;
+  public readonly meetingEngine: MeetingEngine;
   private agents = new Map<string, AgentInstance>();
   private dispatchTimer: ReturnType<typeof setInterval> | null = null;
   private workspaceDir: string;
@@ -79,6 +81,16 @@ export class AgentRuntime {
 
     this.taskManager = new TaskManager(deps.dataDir, (task) => {
       this.broadcastTaskEvent(task);
+    });
+
+    this.meetingEngine = new MeetingEngine({
+      officeState: deps.officeState,
+      sse: deps.sse,
+      memoStore: deps.memoStore,
+      taskManager: this.taskManager,
+      aiProvider: deps.aiProvider,
+      dataDir: deps.dataDir,
+      configManager: this.configManager,
     });
 
     this.initializeAgents();
@@ -346,6 +358,7 @@ export class AgentRuntime {
       clearInterval(this.dispatchTimer);
       this.dispatchTimer = null;
     }
+    this.meetingEngine.shutdown();
     this.antigravityBridge.destroy();
   }
 }

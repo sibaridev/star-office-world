@@ -1238,6 +1238,7 @@
                 <button id="btn-open-drawer" onclick="toggleAssetDrawer()">Decorate Room</button>
                 <button id="btn-open-tasks" onclick="toggleTaskBoard(true)" style="grid-column:1/-1; background:#1e293b; color:#f4c430; border:2px solid #f4c430; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:2px;">📋 Task Board</button>
                 <button id="btn-open-meeting" onclick="openMeetingView()" style="grid-column:1/-1; background:#0f172a; color:#38bdf8; border:2px solid #38bdf8; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:4px;">🎙️ Team Meeting</button>
+                <button id="btn-open-activity" onclick="openActivityMonitorView()" style="grid-column:1/-1; background:#0f172a; color:#34d399; border:2px solid #34d399; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:4px;">📊 Activity Monitor</button>
             </div>
         </div>
 
@@ -4985,11 +4986,13 @@ function toggleBrokerPanel() {
             const viewPr = document.getElementById('tb-view-prompts');
             const viewWf = document.getElementById('tb-view-workforce');
             const viewMt = document.getElementById('tb-view-meetings');
+            const viewAct = document.getElementById('tb-view-activity');
             const tabGen = document.getElementById('tb-tab-general');
             const tabAg = document.getElementById('tb-tab-antigravity');
             const tabPr = document.getElementById('tb-tab-prompts');
             const tabWf = document.getElementById('tb-tab-workforce');
             const tabMt = document.getElementById('tb-tab-meetings');
+            const tabAct = document.getElementById('tb-tab-activity');
 
             // Reset all tabs
             if (viewGen) viewGen.style.display = 'none';
@@ -4997,11 +5000,13 @@ function toggleBrokerPanel() {
             if (viewPr) viewPr.style.display = 'none';
             if (viewWf) viewWf.style.display = 'none';
             if (viewMt) viewMt.style.display = 'none';
+            if (viewAct) viewAct.style.display = 'none';
             if (tabGen) { tabGen.style.background = '#1e293b'; tabGen.style.color = '#94a3b8'; tabGen.style.borderColor = '#475569'; }
             if (tabAg) { tabAg.style.background = '#1e293b'; tabAg.style.color = '#94a3b8'; tabAg.style.borderColor = '#475569'; }
             if (tabPr) { tabPr.style.background = '#1e293b'; tabPr.style.color = '#94a3b8'; tabPr.style.borderColor = '#475569'; }
             if (tabWf) { tabWf.style.background = '#1e293b'; tabWf.style.color = '#94a3b8'; tabWf.style.borderColor = '#475569'; }
             if (tabMt) { tabMt.style.background = '#1e293b'; tabMt.style.color = '#94a3b8'; tabMt.style.borderColor = '#475569'; }
+            if (tabAct) { tabAct.style.background = '#1e293b'; tabAct.style.color = '#94a3b8'; tabAct.style.borderColor = '#475569'; }
 
             if (tab === 'antigravity') {
                 if (viewAg) viewAg.style.display = 'flex';
@@ -5019,11 +5024,20 @@ function toggleBrokerPanel() {
                 if (viewMt) viewMt.style.display = 'flex';
                 if (tabMt) { tabMt.style.background = '#0284c7'; tabMt.style.color = '#fff'; tabMt.style.borderColor = '#38bdf8'; }
                 loadMeetingData();
+            } else if (tab === 'activity') {
+                if (viewAct) viewAct.style.display = 'flex';
+                if (tabAct) { tabAct.style.background = '#059669'; tabAct.style.color = '#fff'; tabAct.style.borderColor = '#34d399'; }
+                loadActivityMonitorData();
             } else {
                 if (viewGen) viewGen.style.display = 'flex';
                 if (tabGen) { tabGen.style.background = '#0284c7'; tabGen.style.color = '#fff'; tabGen.style.borderColor = '#38bdf8'; }
                 loadTaskBoardData();
             }
+        }
+
+        function openActivityMonitorView() {
+            toggleTaskBoard(true);
+            switchTaskBoardTab('activity');
         }
 
         function openMeetingView() {
@@ -5287,6 +5301,393 @@ function toggleBrokerPanel() {
             if (minutesSection) minutesSection.style.display = 'none';
             if (createSection) createSection.style.display = 'flex';
             loadMeetingData();
+        }
+
+        // ── Agent Activity Monitor UI ───────────────────────────────────────
+        let activityAgentsData = [];
+        let selectedActivityAgentId = null;
+
+        function formatRelativeTime(ts) {
+            if (!ts) return 'Unknown';
+            const diff = Math.floor((Date.now() - ts) / 1000);
+            if (diff < 5) return 'Just now';
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return new Date(ts).toLocaleDateString() + ' ' + new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function getStatusColor(status) {
+            switch ((status || '').toUpperCase()) {
+                case 'EXECUTING': case 'RUNNING': case 'IN_PROGRESS': return '#4ade80';
+                case 'THINKING': return '#c084fc';
+                case 'COMMUNICATING': return '#38bdf8';
+                case 'WAITING': case 'WAITING_FOR_TOOL': case 'WAITING_DEPENDENCY': return '#facc15';
+                case 'COMPLETED': return '#34d399';
+                case 'ERROR': case 'FAILED': return '#f87171';
+                case 'BLOCKED': return '#fb923c';
+                case 'INTERRUPTED': return '#cbd5e1';
+                case 'IDLE': default: return '#60a5fa';
+            }
+        }
+
+        async function loadActivityMonitorData(forceReload = false) {
+            try {
+                const updatedEl = document.getElementById('act-last-updated');
+                if (updatedEl) updatedEl.textContent = 'Updating...';
+
+                // 1. Fetch Stats
+                const statsRes = await fetch('/api/activity-monitor/stats', { cache: 'no-store' });
+                if (statsRes.ok) {
+                    const statsData = await statsRes.json();
+                    if (statsData.ok && statsData.stats) {
+                        const s = statsData.stats;
+                        const elTotal = document.getElementById('act-stat-total-agents');
+                        const elWork = document.getElementById('act-stat-working-agents');
+                        const elActive = document.getElementById('act-stat-active-tasks');
+                        const elComp = document.getElementById('act-stat-completed-tasks');
+                        const elBlock = document.getElementById('act-stat-blocked-tasks');
+                        const elHealth = document.getElementById('act-health-badge');
+
+                        if (elTotal) elTotal.textContent = s.totalAgents;
+                        if (elWork) elWork.textContent = `${s.workingAgents} / ${s.activeAgents}`;
+                        if (elActive) elActive.textContent = s.activeTasks;
+                        if (elComp) elComp.textContent = s.completedTasks;
+                        if (elBlock) elBlock.textContent = s.blockedTasks + s.failedTasks;
+                        if (elHealth) {
+                            if (s.systemHealth === 'healthy') {
+                                elHealth.textContent = 'SYSTEM HEALTHY';
+                                elHealth.style.background = '#065f46';
+                                elHealth.style.color = '#a7f3d0';
+                            } else {
+                                elHealth.textContent = 'ATTENTION REQUIRED';
+                                elHealth.style.background = '#7f1d1d';
+                                elHealth.style.color = '#fca5a5';
+                            }
+                        }
+                    }
+                }
+
+                // 2. Fetch Agents Overview
+                const res = await fetch('/api/activity-monitor', { cache: 'no-store' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.ok && Array.isArray(data.agents)) {
+                        activityAgentsData = data.agents;
+                        filterActivityAgents();
+
+                        // Automatically select agent if none selected, or refresh selected
+                        if (!selectedActivityAgentId && activityAgentsData.length > 0) {
+                            selectActivityAgent(activityAgentsData[0].agentId);
+                        } else if (selectedActivityAgentId) {
+                            selectActivityAgent(selectedActivityAgentId, false);
+                        }
+                    }
+                }
+
+                if (updatedEl) {
+                    updatedEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                }
+            } catch (err) {
+                console.error('[activity-monitor] Failed to load data:', err);
+                const updatedEl = document.getElementById('act-last-updated');
+                if (updatedEl) updatedEl.textContent = 'Error refreshing';
+            }
+        }
+
+        function filterActivityAgents() {
+            const searchInput = document.getElementById('act-search-input');
+            const filterSelect = document.getElementById('act-filter-status');
+            const search = (searchInput ? searchInput.value : '').toLowerCase().trim();
+            const filter = filterSelect ? filterSelect.value : 'ALL';
+
+            const filtered = activityAgentsData.filter(agent => {
+                // Search filter
+                if (search) {
+                    const matchName = (agent.name || '').toLowerCase().includes(search);
+                    const matchId = (agent.agentId || '').toLowerCase().includes(search);
+                    const matchRole = (agent.role || '').toLowerCase().includes(search);
+                    const matchTask = agent.currentTask ? agent.currentTask.title.toLowerCase().includes(search) : false;
+                    if (!matchName && !matchId && !matchRole && !matchTask) return false;
+                }
+
+                // Status filter
+                if (filter === 'WORKING') {
+                    return ['EXECUTING', 'THINKING', 'COMMUNICATING', 'RECEIVING_TASK'].includes(agent.runtimeStatus);
+                } else if (filter === 'IDLE') {
+                    return agent.runtimeStatus === 'IDLE' || agent.runtimeStatus === 'COMPLETED';
+                } else if (filter === 'HAS_ACTIVE_TASK') {
+                    return !!agent.currentTask;
+                } else if (filter === 'BLOCKED_ERROR') {
+                    return agent.runtimeStatus === 'ERROR' || (agent.latestExecutionResult && agent.latestExecutionResult.status === 'BLOCKED');
+                }
+                return true;
+            });
+
+            renderActivityOverview(filtered);
+        }
+
+        function renderActivityOverview(agents) {
+            const container = document.getElementById('act-agents-container');
+            if (!container) return;
+
+            if (agents.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align:center; padding:30px; background:#0f172a; border:1px dashed #334155; border-radius:6px; color:#64748b; font-size:12px;">
+                        No agents match the current filter or search criteria.
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = agents.map(agent => {
+                const isSelected = agent.agentId === selectedActivityAgentId;
+                const statusColor = getStatusColor(agent.runtimeStatus);
+                const borderStyle = isSelected ? 'border: 2px solid #38bdf8; background:#172554;' : 'border: 1px solid #1e293b; background:#0b1329;';
+
+                const taskSnippet = agent.currentTask ? `
+                    <div style="background:#0f172a; border-left:3px solid #facc15; padding:6px 8px; border-radius:3px; margin-top:6px;">
+                        <div style="font-size:10px; color:#facc15; font-weight:bold; text-transform:uppercase;">● Current Task (#${agent.currentTask.id})</div>
+                        <div style="font-size:11px; color:#f8fafc; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${agent.currentTask.title}</div>
+                        ${agent.currentTask.lastStep ? `<div style="font-size:10px; color:#94a3b8; margin-top:2px; font-style:italic;">Step #${agent.currentTask.lastStep.stepNumber}: ${agent.currentTask.lastStep.description}</div>` : ''}
+                    </div>` : `
+                    <div style="font-size:11px; color:#64748b; margin-top:6px; font-style:italic;">No active task running</div>`;
+
+                const latestActSnippet = agent.latestActivity ? `
+                    <div style="margin-top:6px; display:flex; align-items:flex-start; gap:6px; font-size:10px; color:#cbd5e1;">
+                        <span style="color:#38bdf8;">⚡</span>
+                        <div style="flex:1; overflow:hidden; text-overflow:ellipsis;">
+                            <span>${agent.latestActivity.description}</span>
+                            <span style="color:#64748b; margin-left:4px;">(${formatRelativeTime(agent.latestActivity.timestamp)})</span>
+                        </div>
+                    </div>` : '';
+
+                const latestExecSnippet = agent.latestExecutionResult ? `
+                    <div style="margin-top:4px; font-size:10px; display:flex; align-items:center; gap:6px;">
+                        <span style="background:${agent.latestExecutionResult.status === 'COMPLETED' ? '#065f46' : '#7f1d1d'}; color:#fff; padding:1px 5px; border-radius:3px; font-weight:bold;">
+                            ${agent.latestExecutionResult.status}
+                        </span>
+                        <span style="color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">
+                            ${agent.latestExecutionResult.taskTitle}
+                        </span>
+                    </div>` : '';
+
+                return `
+                    <div onclick="selectActivityAgent('${agent.agentId}')" style="${borderStyle} border-radius:6px; padding:12px; cursor:pointer; transition:all 0.15s ease;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:18px;">${agent.avatar === 'guest_role_5' ? '⚡' : agent.avatar === 'guest_role_1' ? '👑' : agent.avatar === 'guest_role_2' ? '🔬' : agent.avatar === 'guest_role_3' ? '✍️' : agent.avatar === 'guest_role_4' ? '🛡️' : '🤖'}</span>
+                                <div>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span style="font-size:13px; font-weight:bold; color:#fff;">${agent.name}</span>
+                                        <span style="font-size:10px; color:#64748b;">${agent.agentId}</span>
+                                    </div>
+                                    <div style="font-size:11px; color:#38bdf8;">${agent.role}</div>
+                                </div>
+                            </div>
+                            <div style="text-align:right;">
+                                <span style="display:inline-block; font-size:10px; font-weight:bold; color:${statusColor}; background:#0f172a; border:1px solid ${statusColor}; padding:2px 6px; border-radius:10px;">
+                                    ● ${agent.runtimeStatus}
+                                </span>
+                                <div style="font-size:9px; color:#64748b; margin-top:2px;">${agent.statusDetail || 'Idle'}</div>
+                            </div>
+                        </div>
+
+                        ${taskSnippet}
+                        ${latestActSnippet}
+                        ${latestExecSnippet}
+
+                        <div style="margin-top:8px; padding-top:6px; border-top:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#64748b;">
+                            <span>Tasks: <b>${agent.stats.completedTasks}</b> completed / <b>${agent.stats.totalTasksAssigned}</b> total</span>
+                            <span style="color:#38bdf8; font-weight:bold;">Inspect & History 🔍</span>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        async function selectActivityAgent(agentId, fetchDetail = true) {
+            selectedActivityAgentId = agentId;
+            // Highlight card
+            filterActivityAgents();
+
+            const emptyEl = document.getElementById('act-detail-empty');
+            const contentEl = document.getElementById('act-detail-content');
+            if (emptyEl) emptyEl.style.display = 'none';
+            if (contentEl) {
+                contentEl.style.display = 'flex';
+                if (fetchDetail) {
+                    contentEl.innerHTML = `<div style="text-align:center; padding:40px; color:#64748b; font-size:12px;">Loading detailed agent timeline and execution history for ${agentId}...</div>`;
+                }
+            }
+
+            try {
+                const res = await fetch(`/api/activity-monitor/agents/${agentId}`, { cache: 'no-store' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.ok && data.agent) {
+                        renderAgentActivityDetail(data.agent);
+                    }
+                }
+            } catch (err) {
+                console.error('[activity-monitor] Failed to fetch agent detail:', err);
+                if (contentEl) {
+                    contentEl.innerHTML = `<div style="color:#f87171; padding:20px; text-align:center; font-size:12px;">Error loading agent history.</div>`;
+                }
+            }
+        }
+
+        function renderAgentActivityDetail(detail) {
+            const contentEl = document.getElementById('act-detail-content');
+            if (!contentEl) return;
+
+            const a = detail.overview;
+            const statusColor = getStatusColor(a.runtimeStatus);
+
+            // 1. Header Profile Card
+            const headerHtml = `
+                <div style="background:#020617; border:1px solid #334155; border-radius:6px; padding:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div style="font-size:24px; background:#1e293b; padding:6px 10px; border-radius:6px;">${a.avatar === 'guest_role_5' ? '⚡' : a.avatar === 'guest_role_1' ? '👑' : a.avatar === 'guest_role_2' ? '🔬' : a.avatar === 'guest_role_3' ? '✍️' : a.avatar === 'guest_role_4' ? '🛡️' : '🤖'}</div>
+                        <div>
+                            <div style="font-size:15px; font-weight:bold; color:#fff;">${a.name} <span style="font-size:11px; color:#64748b; font-weight:normal;">(${a.agentId})</span></div>
+                            <div style="font-size:11px; color:#38bdf8;">${a.role} · <span style="color:#94a3b8;">${a.team || 'Core Team'}</span></div>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <span style="font-size:11px; color:#94a3b8; background:#1e293b; padding:3px 8px; border-radius:4px;">Prompt v${a.promptVersion || 1}</span>
+                        <span style="font-size:11px; font-weight:bold; color:${statusColor}; background:#0f172a; border:1px solid ${statusColor}; padding:3px 8px; border-radius:4px;">● ${a.runtimeStatus}</span>
+                    </div>
+                </div>`;
+
+            // 2. Active Task Section
+            const currentTaskHtml = detail.currentTaskDetail ? `
+                <div style="background:#131c38; border:1px solid #facc15; border-radius:6px; padding:12px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:12px; font-weight:bold; color:#facc15;">⚡ Current Assigned Task (${detail.currentTaskDetail.id})</span>
+                        <span style="font-size:10px; background:#facc15; color:#0f172a; font-weight:bold; padding:2px 6px; border-radius:3px;">${detail.currentTaskDetail.status}</span>
+                    </div>
+                    <div style="font-size:13px; font-weight:bold; color:#fff;">${detail.currentTaskDetail.title}</div>
+                    <div style="font-size:11px; color:#cbd5e1; line-height:1.4;">${detail.currentTaskDetail.description}</div>
+                    
+                    ${detail.currentTaskDetail.steps && detail.currentTaskDetail.steps.length > 0 ? `
+                        <div style="margin-top:6px; background:#0b1329; border:1px solid #1e293b; border-radius:4px; padding:8px;">
+                            <div style="font-size:11px; font-weight:bold; color:#7dd3fc; margin-bottom:6px;">Execution Steps Progress (${detail.currentTaskDetail.steps.length} steps):</div>
+                            <div style="display:flex; flex-direction:column; gap:6px; max-height:140px; overflow-y:auto;">
+                                ${detail.currentTaskDetail.steps.map(s => `
+                                    <div style="font-size:10px; border-left:2px solid #38bdf8; padding-left:6px; color:#cbd5e1;">
+                                        <span style="color:#38bdf8; font-weight:bold;">#${s.stepNumber} [${s.tool || 'step'}]</span>: ${s.description}
+                                        ${s.toolResult ? `<div style="color:#94a3b8; font-family:monospace; margin-top:2px; font-size:9px; white-space:pre-wrap; max-height:40px; overflow:hidden;">${s.toolResult.slice(0, 120)}...</div>` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>` : ''}
+                </div>` : `
+                <div style="background:#0b1329; border:1px dashed #334155; border-radius:6px; padding:10px; text-align:center; color:#64748b; font-size:11px;">
+                    Agent is currently idle. No task assigned.
+                </div>`;
+
+            // 3. Latest Execution Result Section
+            const latestResultHtml = a.latestExecutionResult ? `
+                <div style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:12px; display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:12px; font-weight:bold; color:#38bdf8;">🎯 Latest Execution Deliverable</span>
+                        <span style="font-size:10px; background:${a.latestExecutionResult.status === 'COMPLETED' ? '#065f46' : '#7f1d1d'}; color:#fff; font-weight:bold; padding:2px 6px; border-radius:3px;">
+                            ${a.latestExecutionResult.status}
+                        </span>
+                    </div>
+                    <div style="font-size:12px; font-weight:bold; color:#fff;">${a.latestExecutionResult.taskTitle}</div>
+                    
+                    ${a.latestExecutionResult.result ? `
+                        <div style="font-size:11px; color:#cbd5e1; max-height:160px; overflow-y:auto; background:#020617; border:1px solid #1e293b; border-radius:4px; padding:8px; font-family:monospace; white-space:pre-wrap;">${a.latestExecutionResult.result}</div>
+                    ` : a.latestExecutionResult.error ? `
+                        <div style="font-size:11px; color:#f87171; background:#450a0a; border:1px solid #991b1b; border-radius:4px; padding:8px;">${a.latestExecutionResult.error}</div>
+                    ` : a.latestExecutionResult.blockReason ? `
+                        <div style="font-size:11px; color:#facc15; background:#422006; border:1px solid #854d0e; border-radius:4px; padding:8px;">${a.latestExecutionResult.blockReason}</div>
+                    ` : '<div style="font-size:11px; color:#64748b; font-style:italic;">No result text logged.</div>'}
+
+                    ${a.latestExecutionResult.toolsExecuted && a.latestExecutionResult.toolsExecuted.length > 0 ? `
+                        <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; font-size:10px; color:#94a3b8;">
+                            <span>Tools verified:</span>
+                            ${a.latestExecutionResult.toolsExecuted.map(t => `<span style="background:#1e293b; color:#7dd3fc; padding:1px 5px; border-radius:3px; font-family:monospace;">${t}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>` : '';
+
+            // 4. Tools Usage Breakdown
+            const toolsUsageEntries = Object.entries(detail.toolsUsage || {});
+            const toolsHtml = toolsUsageEntries.length > 0 ? `
+                <div style="background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:10px;">
+                    <div style="font-size:11px; font-weight:bold; color:#94a3b8; margin-bottom:6px;">🛠️ Tools Invocation Frequency:</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                        ${toolsUsageEntries.map(([tool, count]) => `
+                            <span style="background:#1e293b; border:1px solid #334155; color:#e2e8f0; font-size:10px; padding:3px 8px; border-radius:4px; font-family:monospace;">
+                                ${tool}: <b style="color:#38bdf8;">${count}</b>
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>` : '';
+
+            // 5. Task Execution History
+            const historyHtml = `
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:12px; font-weight:bold; color:#e2e8f0;">📜 Task Execution History (${detail.taskHistory.length} tasks)</span>
+                    </div>
+                    ${detail.taskHistory.length === 0 ? `
+                        <div style="text-align:center; padding:20px; background:#0b1329; border:1px dashed #334155; border-radius:6px; color:#64748b; font-size:11px;">
+                            No historical tasks assigned to this agent yet.
+                        </div>
+                    ` : `
+                        <div style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto;">
+                            ${detail.taskHistory.map(t => `
+                                <div style="background:#0b1329; border:1px solid #1e293b; border-radius:4px; padding:8px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        <span style="font-size:11px; font-weight:bold; color:#f8fafc;">${t.title}</span>
+                                        <span style="font-size:9px; background:${getStatusColor(t.status)}; color:#0f172a; font-weight:bold; padding:1px 5px; border-radius:2px;">${t.status}</span>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#64748b; margin-top:4px;">
+                                        <span>ID: ${t.id} · Priority: ${t.priority}</span>
+                                        <span>${formatRelativeTime(t.completedAt || t.createdAt)}</span>
+                                    </div>
+                                    ${t.steps && t.steps.length > 0 ? `
+                                        <div style="font-size:9px; color:#94a3b8; margin-top:2px;">${t.steps.length} execution step(s) recorded</div>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    `}
+                </div>`;
+
+            // 6. Chronological Activity Timeline
+            const timelineHtml = `
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <span style="font-size:12px; font-weight:bold; color:#e2e8f0;">⏱️ Chronological Activity Timeline</span>
+                    ${detail.recentTimeline.length === 0 ? `
+                        <div style="text-align:center; padding:20px; background:#0b1329; border:1px dashed #334155; border-radius:6px; color:#64748b; font-size:11px;">
+                            No activity logged yet.
+                        </div>
+                    ` : `
+                        <div style="display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto;">
+                            ${detail.recentTimeline.map(item => `
+                                <div style="display:flex; align-items:flex-start; gap:8px; font-size:10px; border-left:2px solid ${item.source === 'step' ? '#38bdf8' : item.source === 'lifecycle' ? '#a855f7' : '#10b981'}; padding-left:8px;">
+                                    <div style="flex:1;">
+                                        <div style="color:#e2e8f0; font-weight:bold;">${item.title}</div>
+                                        ${item.detail ? `<div style="color:#94a3b8; font-size:9px; margin-top:1px;">${item.detail}</div>` : ''}
+                                    </div>
+                                    <span style="color:#64748b; white-space:nowrap;">${formatRelativeTime(item.timestamp)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `}
+                </div>`;
+
+            contentEl.innerHTML = `
+                ${headerHtml}
+                ${currentTaskHtml}
+                ${latestResultHtml}
+                ${toolsHtml}
+                ${historyHtml}
+                ${timelineHtml}
+            `;
         }
 
         // ── Phase 13: Prompt Introspection & Governance UI ─────────────────
@@ -6338,6 +6739,7 @@ function toggleBrokerPanel() {
           <button id="tb-tab-prompts" onclick="switchTaskBoardTab('prompts')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Prompt Governance 🧠</button>
           <button id="tb-tab-workforce" onclick="switchTaskBoardTab('workforce')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Agent Workforce 👥</button>
           <button id="tb-tab-meetings" onclick="switchTaskBoardTab('meetings')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Team Meetings 🎙️</button>
+          <button id="tb-tab-activity" onclick="switchTaskBoardTab('activity')" style="background:#1e293b; color:#94a3b8; border:1px solid #475569; padding:4px 10px; font-size:12px; border-radius:4px; cursor:pointer; font-family:ArkPixel,monospace;">Activity Monitor 📊</button>
           <button class="task-board-close-btn" onclick="toggleTaskBoard(false)" style="background:#334155; color:#fff; border:none; padding:4px 10px; cursor:pointer; border-radius:4px; font-family:ArkPixel,monospace;">✕</button>
         </div>
       </div>
@@ -6657,6 +7059,87 @@ function toggleBrokerPanel() {
         <div>
           <div style="font-size:13px; color:#94a3b8; margin-bottom:8px;">📁 Meeting Archive & Historical Minutes</div>
           <div id="meeting-archive-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+        </div>
+      </div>
+
+      <!-- AGENT ACTIVITY MONITOR VIEW -->
+      <div id="tb-view-activity" style="display:none; padding:16px 20px; overflow-y:auto; flex:1; flex-direction:column; gap:16px;">
+        <!-- Header & Stats Bar -->
+        <div style="background:#131c38; border:1px solid #334155; border-radius:6px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div style="font-size:15px; font-weight:bold; color:#34d399; display:flex; align-items:center; gap:8px;">
+              <span>📊 Real-Time Agent Activity & Execution Monitor</span>
+              <span id="act-health-badge" style="background:#065f46; color:#a7f3d0; font-size:10px; padding:2px 8px; border-radius:10px; font-weight:normal;">SYSTEM HEALTHY</span>
+            </div>
+            <div style="font-size:11px; color:#94a3b8; margin-top:2px;">Live autonomous agent telemetry, current task execution, tool operations, and verified outcomes.</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="act-last-updated" style="font-size:11px; color:#64748b;">Updated just now</span>
+            <button id="btn-refresh-activity" onclick="loadActivityMonitorData(true)" style="background:#0284c7; color:#fff; border:none; padding:5px 12px; border-radius:4px; font-size:12px; cursor:pointer; font-family:ArkPixel,monospace; display:flex; align-items:center; gap:4px;">🔄 Refresh</button>
+          </div>
+        </div>
+
+        <!-- Global Metric Cards Grid -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px;">
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px; text-align:center;">
+            <div style="font-size:11px; color:#94a3b8;">Registered Agents</div>
+            <div id="act-stat-total-agents" style="font-size:18px; font-weight:bold; color:#38bdf8; margin-top:2px;">-</div>
+          </div>
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px; text-align:center;">
+            <div style="font-size:11px; color:#94a3b8;">Active / Working</div>
+            <div id="act-stat-working-agents" style="font-size:18px; font-weight:bold; color:#4ade80; margin-top:2px;">-</div>
+          </div>
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px; text-align:center;">
+            <div style="font-size:11px; color:#94a3b8;">Active Tasks</div>
+            <div id="act-stat-active-tasks" style="font-size:18px; font-weight:bold; color:#facc15; margin-top:2px;">-</div>
+          </div>
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px; text-align:center;">
+            <div style="font-size:11px; color:#94a3b8;">Completed Tasks</div>
+            <div id="act-stat-completed-tasks" style="font-size:18px; font-weight:bold; color:#a7f3d0; margin-top:2px;">-</div>
+          </div>
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:10px; text-align:center;">
+            <div style="font-size:11px; color:#94a3b8;">Blocked / Failed</div>
+            <div id="act-stat-blocked-tasks" style="font-size:18px; font-weight:bold; color:#f87171; margin-top:2px;">-</div>
+          </div>
+        </div>
+
+        <!-- Filter / Search Controls -->
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:#0f172a; padding:8px 12px; border-radius:6px; border:1px solid #1e293b;">
+          <div style="display:flex; gap:8px; align-items:center; flex:1; max-width:320px;">
+            <span style="font-size:12px; color:#94a3b8;">🔍</span>
+            <input id="act-search-input" type="text" placeholder="Search agent name, ID, role..." oninput="filterActivityAgents()" style="background:#1e293b; border:1px solid #475569; color:#fff; padding:4px 8px; border-radius:4px; font-size:11px; font-family:ArkPixel,monospace; width:100%; box-sizing:border-box;" />
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <span style="font-size:11px; color:#94a3b8;">Filter Status:</span>
+            <select id="act-filter-status" onchange="filterActivityAgents()" style="background:#1e293b; border:1px solid #475569; color:#fff; padding:4px 8px; border-radius:4px; font-size:11px; font-family:ArkPixel,monospace;">
+              <option value="ALL">All Agents</option>
+              <option value="WORKING">Working (Thinking / Executing)</option>
+              <option value="IDLE">Idle / Ready</option>
+              <option value="HAS_ACTIVE_TASK">Has Active Task</option>
+              <option value="BLOCKED_ERROR">Blocked / Error</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Split Screen: Left Agent Overview Cards, Right Detailed Inspector -->
+        <div style="display:grid; grid-template-columns:minmax(320px, 1fr) minmax(380px, 1.4fr); gap:16px; align-items:start;">
+          <!-- Left: Agent Activity Cards Grid -->
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <div style="font-size:12px; font-weight:bold; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">Registered Workforce Telemetry</div>
+            <div id="act-agents-container" style="display:flex; flex-direction:column; gap:10px;">
+              <div style="text-align:center; padding:30px; color:#64748b; font-size:12px;">Loading agent activity data...</div>
+            </div>
+          </div>
+
+          <!-- Right: Selected Agent Deep Inspector -->
+          <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:16px; display:flex; flex-direction:column; gap:14px; position:sticky; top:0;">
+            <div id="act-detail-empty" style="text-align:center; padding:60px 20px; color:#64748b;">
+              <div style="font-size:24px; margin-bottom:8px;">🔍</div>
+              <div style="font-size:13px; font-weight:bold; color:#94a3b8;">Select an agent to inspect details</div>
+              <div style="font-size:11px; color:#475569; margin-top:4px;">View live task step progress, complete execution history, deliverables, and chronological activity timeline.</div>
+            </div>
+            <div id="act-detail-content" style="display:none; flex-direction:column; gap:14px;"></div>
+          </div>
         </div>
       </div>
 

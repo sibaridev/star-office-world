@@ -43,6 +43,21 @@ export class AntigravityBridge {
 
     // Auto-register current workspace if not present
     this.ensureDefaultWorkspace();
+
+    // Reconcile workspace status with interrupted/terminal tasks upon startup
+    this.reconcileWorkspaceLocks();
+  }
+
+  private reconcileWorkspaceLocks(): void {
+    const terminalStatuses = new Set(["INTERRUPTED", "COMPLETED", "FAILED", "CANCELLED"]);
+    for (const ws of this.workspaces.listWorkspaces()) {
+      if (ws.activeTaskId) {
+        const task = this.taskManager.getTask(ws.activeTaskId);
+        if (!task || terminalStatuses.has(task.status)) {
+          this.workspaces.setActiveTask(ws.workspaceId, null);
+        }
+      }
+    }
   }
 
   public detectAgyPath(): string | null {

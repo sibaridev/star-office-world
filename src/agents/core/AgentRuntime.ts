@@ -23,6 +23,7 @@ import { AgentConfigManager } from "../management/AgentConfigManager.js";
 import { AgentTestPlayground } from "../management/AgentTestPlayground.js";
 import type { FullAgentConfig, AgentLifecycleStatus } from "../management/types.js";
 import { MeetingEngine } from "../meeting/MeetingEngine.js";
+import { ActivityMonitorService } from "../monitor/ActivityMonitorService.js";
 
 export interface AgentRuntimeDeps {
   officeState: OfficeWorldState;
@@ -44,6 +45,7 @@ export class AgentRuntime {
   public readonly configManager: AgentConfigManager;
   public readonly testPlayground: AgentTestPlayground;
   public readonly meetingEngine: MeetingEngine;
+  public readonly activityMonitor: ActivityMonitorService;
   private agents = new Map<string, AgentInstance>();
   private dispatchTimer: ReturnType<typeof setInterval> | null = null;
   private workspaceDir: string;
@@ -92,6 +94,8 @@ export class AgentRuntime {
       dataDir: deps.dataDir,
       configManager: this.configManager,
     });
+
+    this.activityMonitor = new ActivityMonitorService(this, () => this.deps.officeState);
 
     this.initializeAgents();
     this.startSupervisor();

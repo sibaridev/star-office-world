@@ -96,6 +96,10 @@ export class AgentInstance {
     return this.currentTask;
   }
 
+  public getMemory(): AgentMemoryEntry[] {
+    return [...this.memory];
+  }
+
   public setEventBus(bus: (event: string, payload: unknown) => void): void {
     this.eventBus = bus;
   }

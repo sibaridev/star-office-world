@@ -596,3 +596,50 @@ test("Antigravity Master Agent (Nova): Full Access and Antigravity Tool Suite", 
   assert.ok(inspectRes.output.includes("Workspace Inspection"));
 });
 
+test("Phase 12: Workspace Lock Reconciliation & Diagnostics Verification", async (t) => {
+  const { tempDir, bridge, sse, memoStore, officeState } = setupTestEnv();
+  t.after(() => sse.destroy());
+
+  // Register a test workspace and set it busy
+  const ws = bridge.workspaces.registerWorkspace({
+    workspaceId: "test_ws_lock",
+    name: "Lock Test Workspace",
+    path: tempDir,
+  });
+
+  const task = bridge.taskManager.createTask({
+    workspaceId: "test_ws_lock",
+    title: "Test Task for Lock",
+    engineeringPrompt: "Test prompt",
+    assignedOfficeAgentId: "agent_nova",
+  });
+
+  bridge.workspaces.setActiveTask("test_ws_lock", task.id);
+  assert.equal(bridge.workspaces.get("test_ws_lock")?.status, "busy");
+
+  // Mark task as INTERRUPTED
+  task.status = "INTERRUPTED";
+  bridge.taskManager.saveTask(task);
+
+  // Create a new bridge instance simulating restart
+  const restartedBridge = new AntigravityBridge({
+    officeState,
+    sse,
+    memoStore,
+    dataDir: tempDir,
+  });
+
+  // Reconciled to idle
+  const reconciledWs = restartedBridge.workspaces.get("test_ws_lock");
+  assert.equal(reconciledWs?.status, "idle");
+  assert.equal(reconciledWs?.activeTaskId, null);
+
+  // Diagnostic module verification
+  const { getAntigravityWriteTestResult } = await import("../dist/diagnostics/antigravity-write-test.js");
+  const writeRes = getAntigravityWriteTestResult();
+  assert.equal(writeRes.success, true);
+  assert.ok(writeRes.timestamp);
+  assert.ok(writeRes.message.includes("succeeded"));
+});
+
+

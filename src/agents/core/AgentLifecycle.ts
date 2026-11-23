@@ -74,6 +74,14 @@ export class AgentLifecycle {
     return Date.now() - this.stateChangedAt;
   }
 
+  public getHistory(): Array<{ state: AgentRuntimeState; timestamp: number; reason?: string }> {
+    return [...this.history];
+  }
+
+  public get lastTransition(): { state: AgentRuntimeState; timestamp: number; reason?: string } | undefined {
+    return this.history[this.history.length - 1];
+  }
+
   public transition(newState: AgentRuntimeState, reason?: string): boolean {
     if (this.currentState === newState) return true;
 

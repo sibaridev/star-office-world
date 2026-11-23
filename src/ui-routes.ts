@@ -1065,4 +1065,38 @@ export function registerUIRoutes(
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
+
+  // ── Agent Activity Monitor Endpoints ─────────────────────────────────────
+
+  fastify.get("/api/activity-monitor", async (_req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const agents = agentRuntime.activityMonitor.getOverview();
+    return { ok: true, timestamp: Date.now(), agents };
+  });
+
+  fastify.get("/api/activity-monitor/stats", async (_req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const stats = agentRuntime.activityMonitor.getSystemStats();
+    return { ok: true, stats };
+  });
+
+  fastify.get("/api/activity-monitor/agents/:agentId", async (req, reply) => {
+    if (!agentRuntime) {
+      reply.code(503);
+      return { ok: false, error: "Runtime not loaded" };
+    }
+    const params = req.params as { agentId: string };
+    const detail = agentRuntime.activityMonitor.getAgentDetail(params.agentId);
+    if (!detail) {
+      reply.code(404);
+      return { ok: false, error: `Agent '${params.agentId}' not found` };
+    }
+    return { ok: true, agent: detail };
+  });
 }

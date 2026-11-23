@@ -6,6 +6,7 @@
 import type { AgentPermission } from "../management/types.js";
 import type { ToolDefinition } from "../tools/ToolTypes.js";
 import type { OfficeTask } from "../tasks/TaskTypes.js";
+import type { IAntigravityBridge } from "../../integrations/antigravity/types.js";
 
 export interface AgentExecutionLimits {
   temperature: number;
@@ -29,7 +30,7 @@ export interface AgentExecutionContextOptions {
   executionLimits?: Partial<AgentExecutionLimits>;
   dataDir: string;
   scratchWorkspaceDir: string;
-  antigravityBridge?: any;
+  antigravityBridge?: IAntigravityBridge;
 }
 
 export class AgentExecutionContext {
@@ -48,7 +49,7 @@ export class AgentExecutionContext {
   public readonly executionLimits: AgentExecutionLimits;
   public readonly dataDir: string;
   public readonly scratchWorkspaceDir: string;
-  public readonly antigravityBridge?: any;
+  public readonly antigravityBridge?: IAntigravityBridge;
   public isCancelled = false;
 
   constructor(opts: AgentExecutionContextOptions) {

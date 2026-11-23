@@ -54,6 +54,13 @@ export interface ToolExecutionProvenance {
   error?: string;
   workspaceId?: string;
   parentExecutionId?: string;
+  idempotencyKey?: string;
+  sources?: Array<{
+    type: "workspace_file" | "git_status" | "task_spec" | "memo" | "meeting";
+    ref: string;
+    verification: "verified" | "inferred";
+  }>;
+  confidence?: "verified" | "inferred";
 }
 
 export interface TaskCheckpoint {
@@ -68,6 +75,7 @@ export interface TaskCheckpoint {
 
 export interface OfficeTask {
   id: string;
+  idempotencyKey?: string;
   title: string;
   description: string;
   assignedAgentId?: string;
@@ -94,6 +102,7 @@ export interface OfficeTask {
 }
 
 export interface CreateTaskOptions {
+  idempotencyKey?: string;
   title: string;
   description: string;
   assignedAgentId?: string;

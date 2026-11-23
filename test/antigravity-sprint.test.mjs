@@ -7,6 +7,7 @@ import Fastify from "fastify";
 import { ToolRegistry } from "../dist/agents/tools/ToolRegistry.js";
 import { ToolExecutionGateway } from "../dist/agents/tools/ToolExecutionGateway.js";
 import { AgentExecutionContext } from "../dist/agents/core/AgentExecutionContext.js";
+import { TaskManager } from "../dist/agents/tasks/TaskManager.js";
 import { WorkspaceRegistry } from "../dist/integrations/antigravity/workspaces/WorkspaceRegistry.js";
 import { createInitialState, getPublicState, updateBackground } from "../dist/state.js";
 import { MemoStore } from "../dist/memo-store.js";
@@ -204,4 +205,105 @@ test("4. World Manifest: Delivered via AWN WorldServer protocol", async (t) => {
   assert.equal(json.type, "programmatic");
   assert.equal(json.theme, "pixel-office");
   assert.equal(json.slug, "test-manifest-world");
+});
+
+test("5. TaskManager: Idempotent task deduplication avoids duplicate execution", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "task-mgr-idem-test-"));
+  const taskManager = new TaskManager(tmpDir);
+
+  const task1 = taskManager.createTask({
+    title: "Generate Report",
+    description: "Produce weekly metrics",
+    assignedAgentId: "agent_nova",
+    idempotencyKey: "report_week_47_nova",
+  });
+
+  assert.ok(task1.id);
+  assert.equal(task1.idempotencyKey, "report_week_47_nova");
+  assert.equal(taskManager.listTasks().length, 1);
+
+  // Transition task1 to IN_PROGRESS
+  taskManager.startTask(task1.id);
+
+  // Attempt duplicate task creation with identical idempotencyKey
+  const task2 = taskManager.createTask({
+    title: "Generate Report Duplicate",
+    description: "Produce weekly metrics again",
+    assignedAgentId: "agent_nova",
+    idempotencyKey: "report_week_47_nova",
+  });
+
+  // Must return existing task and create no duplicate
+  assert.equal(task2.id, task1.id);
+  assert.equal(taskManager.listTasks().length, 1);
+
+  // Complete task1
+  taskManager.completeTask(task1.id, "Report successfully generated.");
+
+  // Third attempt when completed
+  const task3 = taskManager.createTask({
+    title: "Generate Report Duplicate After Completion",
+    description: "Produce weekly metrics again",
+    assignedAgentId: "agent_nova",
+    idempotencyKey: "report_week_47_nova",
+  });
+
+  assert.equal(task3.id, task1.id);
+  assert.equal(taskManager.listTasks().length, 1);
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test("6. ToolExecutionGateway: Tracks idempotencyKey, citation sources, and confidence", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gateway-prov-meta-test-"));
+  const toolRegistry = new ToolRegistry();
+  const recorded = [];
+  const gateway = new ToolExecutionGateway(toolRegistry, tmpDir, (prov) => {
+    recorded.push(prov);
+  });
+
+  const context = new AgentExecutionContext({
+    agentId: "agent_researcher",
+    agentName: "Robin",
+    taskId: "task_meta_01",
+    allowedTools: ["workspace_list_files"],
+    permissions: {
+      canModifyFiles: false,
+      canAccessNetwork: false,
+      canCommunicateWithPeers: false,
+      canUseAntigravity: false,
+      canExecuteCommands: false,
+      requiresReview: false,
+    },
+    dataDir: tmpDir,
+    scratchWorkspaceDir: tmpDir,
+  });
+
+  const customKey = "idem_lookup_file_alpha_01";
+  const customSources = [
+    { type: "file", ref: "src/agents/tasks/TaskManager.ts", summary: "Idempotency implementation" },
+  ];
+
+  const { provenance } = await gateway.execute(
+    "workspace_list_files",
+    {
+      idempotencyKey: customKey,
+      sources: customSources,
+      confidence: "verified",
+    },
+    context
+  );
+
+  assert.equal(provenance.idempotencyKey, customKey);
+  assert.deepEqual(provenance.sources, customSources);
+  assert.equal(provenance.confidence, "verified");
+
+  // Verify provenance history record
+  const lastRecorded = recorded[recorded.length - 1];
+  assert.equal(lastRecorded.idempotencyKey, customKey);
+  assert.equal(lastRecorded.confidence, "verified");
+  assert.equal(lastRecorded.sources?.length, 1);
+  assert.equal(lastRecorded.sources?.[0].ref, "src/agents/tasks/TaskManager.ts");
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });

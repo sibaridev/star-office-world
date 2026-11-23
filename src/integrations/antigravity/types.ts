@@ -80,6 +80,22 @@ export interface E2ETestResult {
   };
 }
 
+export interface IAntigravityBridge {
+  workspaces: {
+    getWorkspace(workspaceId: string): WorkspaceConfig | undefined;
+    get(workspaceId: string): WorkspaceConfig | undefined;
+    listWorkspaces(): WorkspaceConfig[];
+    isAuthorizedPath(workspaceId: string, targetPath: string): boolean;
+    resolveSafePath(workspaceId: string, relativePath: string): string;
+    getGitDiff(workspaceId: string): string;
+  };
+  tasks?: {
+    getTask?(taskId: string): AntigravityTask | undefined;
+    listTasks?(): AntigravityTask[];
+  };
+  checkStatus?: () => Promise<ConnectionState>;
+}
+
 export type WorkspacePermission = "read" | "modify" | "test" | "git" | "network" | "destructive";
 
 export interface WorkspaceConfig {

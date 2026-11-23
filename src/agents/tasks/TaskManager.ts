@@ -44,9 +44,21 @@ export class TaskManager {
   }
 
   public createTask(opts: CreateTaskOptions): OfficeTask {
+    // Check-before-apply idempotent deduplication
+    if (opts.idempotencyKey) {
+      const existing = Array.from(this.tasks.values()).find(
+        (t) => t.idempotencyKey === opts.idempotencyKey && (t.status === "COMPLETED" || t.status === "IN_PROGRESS")
+      );
+      if (existing) {
+        this.persistence.recordRunLog(existing.id, `Idempotent duplicate avoided for key: ${opts.idempotencyKey}`);
+        return existing;
+      }
+    }
+
     const id = `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const task: OfficeTask = {
       id,
+      idempotencyKey: opts.idempotencyKey,
       title: opts.title,
       description: opts.description,
       assignedAgentId: opts.assignedAgentId,

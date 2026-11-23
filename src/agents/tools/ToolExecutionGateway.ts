@@ -36,6 +36,15 @@ export class ToolExecutionGateway {
   ): Promise<{ result: ToolExecutionResult; provenance: ToolExecutionProvenance }> {
     const executionId = `exec_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const requestedAt = Date.now();
+    const idempotencyKey = typeof inputParameters["idempotencyKey"] === "string"
+      ? (inputParameters["idempotencyKey"] as string)
+      : `${context.taskId}_${toolName}_${executionId}`;
+    const sources = Array.isArray(inputParameters["sources"])
+      ? (inputParameters["sources"] as ToolExecutionProvenance["sources"])
+      : undefined;
+    const confidence = inputParameters["confidence"] === "verified" || inputParameters["confidence"] === "inferred"
+      ? (inputParameters["confidence"] as "verified" | "inferred")
+      : undefined;
 
     // 1. Record Tool Requested
     const provenance: ToolExecutionProvenance = {
@@ -49,6 +58,9 @@ export class ToolExecutionGateway {
       status: "REQUESTED",
       workspaceId: context.workspaceId,
       parentExecutionId,
+      idempotencyKey,
+      sources,
+      confidence,
     };
 
     // 2. Authorization & Permission Validation

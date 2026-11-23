@@ -72,10 +72,12 @@ export class AgentRuntime {
 
     this.promptRegistry = new PromptRegistry(deps.dataDir);
     this.configManager = new AgentConfigManager(deps.dataDir, this.promptRegistry);
-    this.testPlayground = new AgentTestPlayground({
-      aiProvider: deps.aiProvider,
-      toolRegistry: this.toolRegistry,
-      configManager: this.configManager,
+
+    this.antigravityBridge = new AntigravityBridge({
+      officeState: deps.officeState,
+      sse: deps.sse,
+      memoStore: deps.memoStore,
+      dataDir: deps.dataDir,
     });
 
     this.proposalManager = new PromptProposalManager({
@@ -87,11 +89,13 @@ export class AgentRuntime {
       promptRegistry: this.promptRegistry,
     });
 
-    this.antigravityBridge = new AntigravityBridge({
-      officeState: deps.officeState,
-      sse: deps.sse,
-      memoStore: deps.memoStore,
+    this.testPlayground = new AgentTestPlayground({
+      aiProvider: deps.aiProvider,
+      toolRegistry: this.toolRegistry,
+      configManager: this.configManager,
       dataDir: deps.dataDir,
+      workspaceDir: process.cwd(),
+      antigravityBridge: this.antigravityBridge,
     });
 
     this.taskManager = new TaskManager(deps.dataDir, (task) => {

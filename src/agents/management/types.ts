@@ -107,6 +107,7 @@ export interface AgentTestPlaygroundRequest {
   tempConfig?: Partial<FullAgentConfig>;
   testInstruction: string;
   toolsEnabled?: boolean;
+  simulateTools?: boolean;
 }
 
 export interface AgentTestPlaygroundResult {

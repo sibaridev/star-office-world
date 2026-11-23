@@ -6,7 +6,9 @@
 
 import type { AIProvider } from "../../ai/interfaces/AIProvider.js";
 import type { ToolRegistry } from "../tools/ToolRegistry.js";
+import type { ToolExecutionContext } from "../tools/ToolTypes.js";
 import type { AgentConfigManager } from "./AgentConfigManager.js";
+import { DEFAULT_PERMISSIONS } from "./AgentConfigManager.js";
 import type {
   AgentTestPlaygroundRequest,
   AgentTestPlaygroundResult,
@@ -17,15 +19,24 @@ export class AgentTestPlayground {
   private aiProvider: AIProvider;
   private toolRegistry?: ToolRegistry;
   private configManager: AgentConfigManager;
+  private dataDir?: string;
+  private workspaceDir?: string;
+  private antigravityBridge?: unknown;
 
   constructor(opts: {
     aiProvider: AIProvider;
     toolRegistry?: ToolRegistry;
     configManager: AgentConfigManager;
+    dataDir?: string;
+    workspaceDir?: string;
+    antigravityBridge?: unknown;
   }) {
     this.aiProvider = opts.aiProvider;
     this.toolRegistry = opts.toolRegistry;
     this.configManager = opts.configManager;
+    this.dataDir = opts.dataDir;
+    this.workspaceDir = opts.workspaceDir;
+    this.antigravityBridge = opts.antigravityBridge;
   }
 
   public async runTest(
@@ -72,8 +83,11 @@ ${toolDeclarations}
 
 CRITICAL EXECUTION INTEGRITY RULES:
 - You HAVE active authorization and full access to invoke any of the tools listed in AVAILABLE TOOLS.
-- When an instruction requests an action (such as creating, writing, modifying, reading, or listing files, running git/antigravity checks, delegating tasks, or searching), you MUST invoke the appropriate tool using the JSON decision format below.
-- NEVER claim that you do not have access to the workspace, filesystem, or Antigravity bridge tools.
+- TOOL SELECTION:
+  * To directly create, write, or update files in the local workspace (e.g. "create a test.md file"), you MUST invoke \`workspace_write_file\` with \`filePath\` and \`content\`.
+  * To inspect files or directories, use \`workspace_read_file\` or \`workspace_list_files\`.
+  * Only invoke \`delegate_to_antigravity\` when explicitly asked for complex engineering refactors, git commits, or Antigravity CLI delegation.
+- NEVER claim that you do not have access to the workspace, filesystem, or tools.
 - NEVER output excuses such as "I don't have access to...", "I lack tools in this environment", or instruct the user to run commands or create files manually.
 - When invoking a tool, format your output as a JSON block:
 \`\`\`json
@@ -99,6 +113,7 @@ Analyze and act upon this test instruction. If an action or tool is needed to fu
 \`\`\`
 Do not apologize or refuse.`;
 
+    const isSimulation = request.simulateTools !== false;
     const toolCallsMade: Array<{ tool: string; args: Record<string, unknown>; result?: string }> = [];
     let responseText = "";
     let success = false;
@@ -113,7 +128,9 @@ Do not apologize or refuse.`;
       responseText = result.text || "";
       success = true;
 
-      // Detect simulated tool calls in the output (supporting codeblocks or raw JSON)
+      const rawToolDecisions: Array<{ tool: string; args: Record<string, unknown> }> = [];
+
+      // Detect tool calls in the output (supporting codeblocks or raw JSON)
       const codeBlockMatches = [...responseText.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/g)];
       const candidateStrings = codeBlockMatches.length > 0 ? codeBlockMatches.map((m) => m[1]) : [responseText];
 
@@ -156,10 +173,9 @@ Do not apologize or refuse.`;
             try {
               const parsed = JSON.parse(jsonSub);
               if (parsed && parsed.action === "tool" && parsed.tool) {
-                toolCallsMade.push({
+                rawToolDecisions.push({
                   tool: parsed.tool,
                   args: parsed.args || {},
-                  result: "[Simulated in Playground Sandbox]",
                 });
               }
             } catch {
@@ -173,21 +189,56 @@ Do not apologize or refuse.`;
       }
 
       // Fallback regex detection if balanced brace search didn't catch a flat tool call
-      if (toolCallsMade.length === 0) {
+      if (rawToolDecisions.length === 0) {
         const fallbackMatch = responseText.match(/\{[\s\S]*"action"\s*:\s*"tool"[\s\S]*\}/);
         if (fallbackMatch) {
           try {
             const parsed = JSON.parse(fallbackMatch[0]);
             if (parsed.tool) {
-              toolCallsMade.push({
+              rawToolDecisions.push({
                 tool: parsed.tool,
                 args: parsed.args || {},
-                result: "[Simulated in Playground Sandbox]",
               });
             }
           } catch {
             // ignore
           }
+        }
+      }
+
+      // Execute or simulate tool calls
+      for (const decision of rawToolDecisions) {
+        if (isSimulation) {
+          toolCallsMade.push({
+            tool: decision.tool,
+            args: decision.args,
+            result: "[Simulated in Playground Sandbox]",
+          });
+        } else if (this.toolRegistry) {
+          const toolCtx: ToolExecutionContext = {
+            agentId,
+            agentName: effectiveConfig.name || "Test Agent",
+            taskId: `playground_${Date.now()}`,
+            dataDir: this.dataDir || process.cwd(),
+            workspaceDir: this.workspaceDir || process.cwd(),
+            antigravityBridge: this.antigravityBridge as any,
+            permissions: baseConfig?.permissions || DEFAULT_PERMISSIONS,
+          };
+
+          const execRes = await this.toolRegistry.executeTool(
+            decision.tool,
+            decision.args,
+            toolCtx,
+            effectiveConfig.allowedTools
+          );
+
+          toolCallsMade.push({
+            tool: decision.tool,
+            args: decision.args,
+            result: execRes.success
+              ? `[Executed on Disk]: ${execRes.output}`
+              : `[Execution Error]: ${execRes.error}`,
+          });
         }
       }
     } catch (err: unknown) {

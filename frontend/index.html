@@ -6283,7 +6283,7 @@ function toggleBrokerPanel() {
         async function runPlaygroundTestUI() {
             const agentId = document.getElementById('wf-play-agent').value;
             const instruction = document.getElementById('wf-play-instruction').value.trim();
-            const toolsEnabled = document.getElementById('wf-play-tools').checked;
+            const simulateTools = document.getElementById('wf-play-tools').checked;
             const outputEl = document.getElementById('wf-play-output');
             const statusEl = document.getElementById('wf-play-status');
 
@@ -6293,16 +6293,17 @@ function toggleBrokerPanel() {
             }
 
             try {
-                if (statusEl) statusEl.textContent = 'Running sandbox test in Gemini session...';
+                if (statusEl) statusEl.textContent = simulateTools ? 'Running sandbox simulation in Gemini session...' : 'Executing real tool actions on workspace...';
                 const res = await fetch('/api/agent-management/test', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ agentId, testInstruction: instruction, toolsEnabled })
+                    body: JSON.stringify({ agentId, testInstruction: instruction, toolsEnabled: true, simulateTools: simulateTools })
                 });
                 const data = await res.json();
                 if (res.ok && data.ok) {
                     if (statusEl) statusEl.textContent = `Completed in ${data.result.executionDurationMs}ms (Provider: ${data.result.modelProvider})`;
-                    let summary = `=== Execution Result ===\n${data.result.response}\n\n=== Simulated Tool Calls (${data.result.toolCallsMade.length}) ===\n`;
+                    const modeLabel = simulateTools ? 'Simulated Tool Calls' : 'Executed Tool Calls (Real Disk)';
+                    let summary = `=== Execution Result ===\n${data.result.response}\n\n=== ${modeLabel} (${data.result.toolCallsMade.length}) ===\n`;
                     data.result.toolCallsMade.forEach(tc => {
                         summary += `* Tool: ${tc.tool}\n  Args: ${JSON.stringify(tc.args)}\n  Result: ${tc.result}\n\n`;
                     });
@@ -7243,7 +7244,7 @@ function toggleBrokerPanel() {
             <textarea id="wf-play-instruction" rows="3" placeholder="Enter instruction to test agent reasoning, prompt comprehension, or tool choices..." style="width:100%; background:#0f172a; border:1px solid #475569; color:#fff; padding:6px 10px; border-radius:4px; font-size:12px; margin-top:2px; box-sizing:border-box; resize:vertical;"></textarea>
           </div>
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <label style="font-size:11px; display:flex; align-items:center; gap:6px; color:#94a3b8;"><input type="checkbox" id="wf-play-tools" checked /> Simulate tools in playground</label>
+            <label style="font-size:11px; display:flex; align-items:center; gap:6px; color:#94a3b8;"><input type="checkbox" id="wf-play-tools" checked /> Simulate tools in playground (uncheck to execute real tools on disk)</label>
             <button onclick="runPlaygroundTestUI()" style="background:#0284c7; color:#fff; font-weight:bold; border:none; padding:6px 14px; border-radius:4px; cursor:pointer;">▶ Execute Test</button>
           </div>
           <div>

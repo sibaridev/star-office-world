@@ -64,15 +64,40 @@ export class AgentTestPlayground {
     const systemInstruction = `[TEST PLAYGROUND SANDBOX ENVIRONMENT]
 ${effectiveConfig.systemPrompt}
 
-You are in a safe test playground. Analyze the instruction and reply clearly.
-Available Tools:
-${toolDeclarations}`;
+You are ${effectiveConfig.name}, role: ${effectiveConfig.role} in Star Office World.
+You are running in the Agent Test Playground Sandbox.
+
+AVAILABLE TOOLS:
+${toolDeclarations}
+
+CRITICAL EXECUTION INTEGRITY RULES:
+- You HAVE active authorization and full access to invoke any of the tools listed in AVAILABLE TOOLS.
+- When an instruction requests an action (such as creating, writing, modifying, reading, or listing files, running git/antigravity checks, delegating tasks, or searching), you MUST invoke the appropriate tool using the JSON decision format below.
+- NEVER claim that you do not have access to the workspace, filesystem, or Antigravity bridge tools.
+- NEVER output excuses such as "I don't have access to...", "I lack tools in this environment", or instruct the user to run commands or create files manually.
+- When invoking a tool, format your output as a JSON block:
+\`\`\`json
+{
+  "action": "tool",
+  "tool": "<tool_name>",
+  "args": { ... },
+  "thought": "Reasoning for using this tool"
+}
+\`\`\`
+If no tool is required, provide your final response directly.`;
 
     const prompt = `Test Instruction: ${request.testInstruction}
 
-Respond directly to the test prompt. If you need a tool, indicate it clearly using JSON format:
-{"action":"tool","tool":"<tool_name>","args":{...}}
-Otherwise, provide your final analysis.`;
+Analyze and act upon this test instruction. If an action or tool is needed to fulfill this instruction, invoke it now using the JSON decision format:
+\`\`\`json
+{
+  "action": "tool",
+  "tool": "<tool_name>",
+  "args": { ... },
+  "thought": "..."
+}
+\`\`\`
+Do not apologize or refuse.`;
 
     const toolCallsMade: Array<{ tool: string; args: Record<string, unknown>; result?: string }> = [];
     let responseText = "";
@@ -88,20 +113,81 @@ Otherwise, provide your final analysis.`;
       responseText = result.text || "";
       success = true;
 
-      // Detect simulated tool calls in the output
-      const jsonMatch = responseText.match(/\{[\s\S]*"action"\s*:\s*"tool"[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.tool) {
-            toolCallsMade.push({
-              tool: parsed.tool,
-              args: parsed.args || {},
-              result: "[Simulated in Playground Sandbox]",
-            });
+      // Detect simulated tool calls in the output (supporting codeblocks or raw JSON)
+      const codeBlockMatches = [...responseText.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/g)];
+      const candidateStrings = codeBlockMatches.length > 0 ? codeBlockMatches.map((m) => m[1]) : [responseText];
+
+      for (const str of candidateStrings) {
+        let startIdx = 0;
+        while ((startIdx = str.indexOf("{", startIdx)) !== -1) {
+          let depth = 0;
+          let inString = false;
+          let escape = false;
+          let endIdx = -1;
+
+          for (let i = startIdx; i < str.length; i++) {
+            const char = str[i];
+            if (escape) {
+              escape = false;
+              continue;
+            }
+            if (char === "\\") {
+              escape = true;
+              continue;
+            }
+            if (char === '"') {
+              inString = !inString;
+              continue;
+            }
+            if (!inString) {
+              if (char === "{") depth++;
+              else if (char === "}") {
+                depth--;
+                if (depth === 0) {
+                  endIdx = i;
+                  break;
+                }
+              }
+            }
           }
-        } catch {
-          // not valid json tool call
+
+          if (endIdx !== -1) {
+            const jsonSub = str.slice(startIdx, endIdx + 1);
+            try {
+              const parsed = JSON.parse(jsonSub);
+              if (parsed && parsed.action === "tool" && parsed.tool) {
+                toolCallsMade.push({
+                  tool: parsed.tool,
+                  args: parsed.args || {},
+                  result: "[Simulated in Playground Sandbox]",
+                });
+              }
+            } catch {
+              // Not valid json block
+            }
+            startIdx = endIdx + 1;
+          } else {
+            break;
+          }
+        }
+      }
+
+      // Fallback regex detection if balanced brace search didn't catch a flat tool call
+      if (toolCallsMade.length === 0) {
+        const fallbackMatch = responseText.match(/\{[\s\S]*"action"\s*:\s*"tool"[\s\S]*\}/);
+        if (fallbackMatch) {
+          try {
+            const parsed = JSON.parse(fallbackMatch[0]);
+            if (parsed.tool) {
+              toolCallsMade.push({
+                tool: parsed.tool,
+                args: parsed.args || {},
+                result: "[Simulated in Playground Sandbox]",
+              });
+            }
+          } catch {
+            // ignore
+          }
         }
       }
     } catch (err: unknown) {

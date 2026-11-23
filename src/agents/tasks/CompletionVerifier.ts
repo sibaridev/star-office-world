@@ -51,7 +51,7 @@ export class CompletionVerifier {
         return {
           canComplete: false,
           status: "BLOCKED",
-          blockReason: `Agent reported lack of capability or missing tools in output response: "${proposedResult.slice(0, 160)}..."`,
+          blockReason: `Agent reported lack of capability or proposed manual shell commands instead of executing tools: "${proposedResult.slice(0, 160)}..."`,
         };
       }
     }

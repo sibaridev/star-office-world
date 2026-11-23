@@ -11,6 +11,10 @@ import {
   workspaceWriteFileTool,
   workspaceReadFileTool,
   workspaceListFilesTool,
+  workspaceEditFileTool,
+  workspaceExecuteCommandTool,
+  workspaceDeleteFileTool,
+  workspaceDiscoverProjectTool,
 } from "./builtins/WorkspaceTools.js";
 import {
   webSearchTool,
@@ -44,6 +48,10 @@ export class ToolRegistry {
     this.register(workspaceWriteFileTool);
     this.register(workspaceReadFileTool);
     this.register(workspaceListFilesTool);
+    this.register(workspaceEditFileTool);
+    this.register(workspaceExecuteCommandTool);
+    this.register(workspaceDeleteFileTool);
+    this.register(workspaceDiscoverProjectTool);
     this.register(webSearchTool);
     this.register(webFetchTool);
     this.register(sendAgentMessageTool);
@@ -107,11 +115,21 @@ export class ToolRegistry {
     // Backend-enforced permission check
     if (context.permissions) {
       const p = context.permissions;
-      if (name === "workspace_write_file" && !p.canModifyFiles) {
+      if (
+        (name === "workspace_write_file" || name === "workspace_edit_file" || name === "workspace_delete_file") &&
+        !p.canModifyFiles
+      ) {
         return {
           success: false,
           output: "",
           error: `Permission Denied: Agent ${context.agentName} does not have 'canModifyFiles' permission.`,
+        };
+      }
+      if (name === "workspace_execute_command" && !p.canExecuteTests) {
+        return {
+          success: false,
+          output: "",
+          error: `Permission Denied: Agent ${context.agentName} does not have 'canExecuteTests' permission.`,
         };
       }
       if ((name === "delegate_to_antigravity" || name === "check_antigravity_bridge") && !p.canUseAntigravity) {

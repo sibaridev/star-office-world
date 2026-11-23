@@ -164,8 +164,14 @@ export class ToolExecutionGateway {
 
     // C. Fine-grained permission flags
     const p = context.permissions;
-    if (toolName === "workspace_write_file" && !p.canModifyFiles) {
+    if (
+      (toolName === "workspace_write_file" || toolName === "workspace_edit_file" || toolName === "workspace_delete_file") &&
+      !p.canModifyFiles
+    ) {
       return { authorized: false, error: `Agent ${context.agentName} lacks 'canModifyFiles' permission.` };
+    }
+    if (toolName === "workspace_execute_command" && !p.canExecuteTests) {
+      return { authorized: false, error: `Agent ${context.agentName} lacks 'canExecuteTests' permission.` };
     }
     if (
       (toolName.includes("antigravity") || toolName === "delegate_to_antigravity") &&

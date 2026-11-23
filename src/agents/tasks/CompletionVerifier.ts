@@ -51,7 +51,7 @@ export class CompletionVerifier {
         return {
           canComplete: false,
           status: "BLOCKED",
-          blockReason: `Agent reported lack of capability or proposed manual shell commands instead of executing tools: "${proposedResult.slice(0, 160)}..."`,
+          blockReason: `Agent reported lack of capability or missing tools in output response: "${proposedResult.slice(0, 160)}..."`,
         };
       }
     }
@@ -105,77 +105,102 @@ export class CompletionVerifier {
 
     const verifiedEvidence: TaskExecutionEvidence[] = [];
 
-    // Verify completed write operations by reading files back from disk
-    const writeExecutions = completedToolExecutions.filter(
-      (p) => p.tool === "workspace_write_file"
+    // Verify completed write or edit operations by reading files back from disk
+    const modificationExecutions = completedToolExecutions.filter(
+      (p) => p.tool === "workspace_write_file" || p.tool === "workspace_edit_file"
     );
 
-    for (const writeExec of writeExecutions) {
-      const targetPath = (writeExec.inputParameters?.["filePath"] as string) || "";
+    // Group modifications by resolved file path so we verify the final/latest modification state
+    const latestModificationsByFile = new Map<string, { resolvedPath: string; modExec: ToolExecutionProvenance }>();
+    for (const modExec of modificationExecutions) {
+      const targetPath = (modExec.inputParameters?.["filePath"] as string) || "";
       if (targetPath) {
         let resolvedPath = path.normalize(targetPath);
         if (!path.isAbsolute(resolvedPath) && task.workspacePath) {
           resolvedPath = path.normalize(path.resolve(task.workspacePath, targetPath));
         }
-
-        if (!fs.existsSync(resolvedPath)) {
-          return {
-            canComplete: false,
-            status: "FAILED",
-            blockReason: `Verification Failure: Target file '${resolvedPath}' does not exist on disk after write operation.`,
-          };
-        }
-
-        try {
-          const readBack = fs.readFileSync(resolvedPath, "utf8");
-          const expectedContent = (writeExec.inputParameters?.["content"] as string) || "";
-          const matches =
-            !expectedContent ||
-            readBack === expectedContent ||
-            readBack.includes(expectedContent.trim());
-
-          if (!matches) {
-            return {
-              canComplete: false,
-              status: "FAILED",
-              blockReason: `Verification Failure: Read-back content does not match expected write for '${resolvedPath}'.`,
-            };
-          }
-
-          verifiedEvidence.push({
-            tool: writeExec.tool,
-            operation: "workspace_write_file",
-            targetPath: resolvedPath,
-            result: `Verified on disk (${readBack.length} bytes)`,
-            verificationStatus: "VERIFIED",
-            verifiedAt: Date.now(),
-            readBackContent: readBack,
-          });
-        } catch (err: unknown) {
-          return {
-            canComplete: false,
-            status: "FAILED",
-            blockReason: `Verification Read Error: Could not read back written file '${resolvedPath}': ${err instanceof Error ? err.message : String(err)}`,
-          };
-        }
+        latestModificationsByFile.set(resolvedPath.toLowerCase(), { resolvedPath, modExec });
       }
     }
 
-    if (isModificationTask && writeExecutions.length === 0 && completedToolExecutions.length === 0) {
+    for (const { resolvedPath, modExec } of latestModificationsByFile.values()) {
+      if (!fs.existsSync(resolvedPath)) {
+        return {
+          canComplete: false,
+          status: "FAILED",
+          blockReason: `Verification Failure: Target file '${resolvedPath}' does not exist on disk after modification operation.`,
+        };
+      }
+
+      try {
+        const readBack = fs.readFileSync(resolvedPath, "utf8");
+        const expectedContent =
+          (modExec.inputParameters?.["content"] as string) ||
+          (modExec.inputParameters?.["replacement"] as string) ||
+          "";
+
+        const normalizedReadBack = readBack.replace(/\r\n/g, "\n");
+        const normalizedExpected = expectedContent.trim().replace(/\r\n/g, "\n");
+
+        const matches =
+          !expectedContent ||
+          normalizedReadBack === normalizedExpected ||
+          normalizedReadBack.includes(normalizedExpected);
+
+        if (!matches) {
+          return {
+            canComplete: false,
+            status: "FAILED",
+            blockReason: `Verification Failure: Read-back content does not match expected modification for '${resolvedPath}'.`,
+          };
+        }
+
+        verifiedEvidence.push({
+          tool: modExec.tool,
+          operation: modExec.tool,
+          targetPath: resolvedPath,
+          result: `Verified on disk (${readBack.length} bytes)`,
+          verificationStatus: "VERIFIED",
+          verifiedAt: Date.now(),
+          readBackContent: readBack,
+        });
+      } catch (err: unknown) {
+        return {
+          canComplete: false,
+          status: "FAILED",
+          blockReason: `Verification Read Error: Could not read back modified file '${resolvedPath}': ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+
+    // Add command execution evidence if present
+    const cmdExecutions = completedToolExecutions.filter((p) => p.tool === "workspace_execute_command");
+    for (const cmdExec of cmdExecutions) {
+      verifiedEvidence.push({
+        tool: cmdExec.tool,
+        operation: "workspace_execute_command",
+        targetPath: String(cmdExec.inputParameters?.["command"] || ""),
+        result: `Command executed: ${cmdExec.output?.slice(0, 80) || "Code 0"}`,
+        verificationStatus: "VERIFIED",
+        verifiedAt: Date.now(),
+      });
+    }
+
+    if (isModificationTask && modificationExecutions.length === 0 && completedToolExecutions.length === 0) {
       return {
         canComplete: false,
         status: "BLOCKED",
         blockReason:
-          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (workspace_write_file) were successfully executed.",
+          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (workspace_write_file, workspace_edit_file) were successfully executed.",
       };
     }
 
-    if (isModificationTask && writeExecutions.length > 0 && verifiedEvidence.length === 0) {
+    if (isModificationTask && modificationExecutions.length > 0 && verifiedEvidence.length === 0) {
       return {
         canComplete: false,
         status: "FAILED",
         blockReason:
-          "Execution Integrity Failure: File write could not be verified on disk.",
+          "Execution Integrity Failure: File modification could not be verified on disk.",
       };
     }
 

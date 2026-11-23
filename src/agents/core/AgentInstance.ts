@@ -150,6 +150,9 @@ export class AgentInstance {
         effectiveWorkspacePath = ws.path || (ws as any).rootPath;
       }
     }
+    if (!effectiveWorkspacePath) {
+      effectiveWorkspacePath = process.cwd();
+    }
 
     const executionContext = new AgentExecutionContext({
       agentId: this.agentId,
@@ -255,9 +258,20 @@ export class AgentInstance {
           const compRes = this.taskManager.completeTask(task.id, finalResult);
           if (compRes && compRes.status !== "COMPLETED") {
             const reason = compRes.blockReason || "Completion rejected by verification engine";
-            this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
-            this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
-            completed = true;
+            this.taskManager.addStep(task.id, {
+              description: `Completion rejected by verification engine: ${reason}`,
+              tool: "verifier",
+              toolResult: `Blocker: ${reason}. You must execute the required action tools before completing.`,
+              thought: "Must execute required action tools before completing",
+            });
+            if (iteration >= effectiveMaxIterations) {
+              this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
+              this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
+              completed = true;
+            } else {
+              this.lifecycle.transition("EXECUTING", `Retrying: executing action tools...`);
+              this.emitStateChange(`Action tool required to fulfill task...`);
+            }
           } else {
             this.lifecycle.transition("COMPLETED", "Task completed");
             this.emitStateChange(`Completed task: ${task.title}`);
@@ -274,9 +288,20 @@ export class AgentInstance {
           const compRes = this.taskManager.completeTask(task.id, aiResponse.text);
           if (compRes && compRes.status !== "COMPLETED") {
             const reason = compRes.blockReason || "Completion rejected by verification engine";
-            this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
-            this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
-            completed = true;
+            this.taskManager.addStep(task.id, {
+              description: `Completion rejected by verification engine: ${reason}`,
+              tool: "verifier",
+              toolResult: `Blocker: ${reason}. Text response alone is not sufficient; invoke the appropriate action tool.`,
+              thought: "Must execute required action tools before completing",
+            });
+            if (iteration >= effectiveMaxIterations) {
+              this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
+              this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
+              completed = true;
+            } else {
+              this.lifecycle.transition("EXECUTING", `Retrying: executing action tools...`);
+              this.emitStateChange(`Action tool required to fulfill task...`);
+            }
           } else {
             this.lifecycle.transition("COMPLETED", "Completed output");
             this.emitStateChange(`Finished: ${task.title}`);
@@ -365,11 +390,13 @@ To delegate a subtask (if you are the Coordinator):
 
 CRITICAL EXECUTION INTEGRITY RULES:
 - You MUST ALWAYS respond with a JSON decision block. Do NOT reply with conversational chat, apologies, or plain prose.
+- When asked to create, write, edit, or modify files in the project workspace, you MUST invoke 'workspace_write_file' with 'filePath' (relative to workspace root, e.g. 'test.md', 'src/types.ts') and 'content'. It directly writes and updates files on disk.
 - When asked about Antigravity access, connection status, repository analysis, or software engineering tasks: DO NOT guess, DO NOT assume tools are absent, and DO NOT instruct the user to run manual shell commands!
 - You have direct tools to inspect authorized workspaces:
   * 'get_antigravity_workspace_git_status' to inspect real git status, active branch, and modified files.
   * 'list_antigravity_workspace_files' to inspect files in the authorized repository.
   * 'read_antigravity_workspace_file' to read file contents from the repository.
+  * 'workspace_write_file' to create or edit files in the authorized workspace.
   * 'check_antigravity_bridge' to verify bridge status.
 - Never output excuses such as "I do not have access to..." or "Run these commands manually...". If a task requires evidence from a repository or workspace, invoke the appropriate tools to collect real data.
 

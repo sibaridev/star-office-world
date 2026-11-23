@@ -77,6 +77,20 @@ export class CompletionVerifier {
       };
     }
 
+    // 3b. File Creation / Modification Task Integrity Enforcement
+    const isModificationTask =
+      /\b(?:create|write|edit|modify|update|add|append|delete|refactor|build)\b/i.test(task.title) &&
+      /\b(?:file|document|script|code|project|test\.md|readme|component)\b/i.test(combinedText);
+
+    if (isModificationTask && completedToolExecutions.length === 0) {
+      return {
+        canComplete: false,
+        status: "BLOCKED",
+        blockReason:
+          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (e.g. workspace_write_file, delegate_to_antigravity) were successfully executed.",
+      };
+    }
+
     // 4. Acceptance Criteria Verification
     if (task.acceptanceCriteria && task.acceptanceCriteria.length > 0) {
       const incomplete: string[] = [];

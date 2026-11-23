@@ -203,7 +203,7 @@ export class TaskManager {
     const verify = CompletionVerifier.verifyCompletion(task, result, effectiveProvenance);
 
     if (!verify.canComplete) {
-      task.status = verify.status; // BLOCKED or PARTIALLY_COMPLETED
+      task.status = verify.status; // BLOCKED, FAILED, or PARTIALLY_COMPLETED
       task.result = result;
       task.provenance = effectiveProvenance;
       task.blockReason = verify.blockReason;
@@ -218,6 +218,19 @@ export class TaskManager {
         this.checkParentCompletion(task.parentTaskId);
       }
       return task;
+    }
+
+    // Explicitly transition through VERIFIED before COMPLETED
+    if (verify.verifiedEvidence && verify.verifiedEvidence.length > 0) {
+      task.evidence = verify.verifiedEvidence;
+      task.status = "VERIFIED";
+      task.updatedAt = Date.now();
+      this.persistence.saveTask(task);
+      this.persistence.recordRunLog(
+        taskId,
+        `Execution verified: ${verify.verifiedEvidence.length} verified operations on disk.`
+      );
+      this.notifyUpdate(task);
     }
 
     task.status = "COMPLETED";

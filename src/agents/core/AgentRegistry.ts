@@ -18,6 +18,7 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
       "send_agent_message",
       "post_office_memo",
       "workspace_read_file",
+      "workspace_write_file",
       "workspace_list_files",
       "delegate_to_antigravity",
       "check_antigravity_bridge",

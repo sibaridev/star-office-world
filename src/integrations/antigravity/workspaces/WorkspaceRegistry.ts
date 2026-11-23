@@ -110,42 +110,106 @@ export class WorkspaceRegistry {
    * Checks whether a path is within the authorized workspace directory without throwing.
    */
   public isAuthorizedPath(workspaceId: string, targetPath: string): boolean {
-    const ws = this.getWorkspace(workspaceId);
-    if (!ws) return false;
-    const wsRoot = path.normalize(ws.path).toLowerCase();
-    const resolved = path.normalize(path.resolve(ws.path, targetPath)).toLowerCase();
-
-    // Check directory boundary
-    if (!resolved.startsWith(wsRoot)) return false;
-    if (resolved !== wsRoot && !resolved.startsWith(wsRoot + path.sep)) return false;
-
-    // If file exists, ensure realpath does not escape (symlink check)
-    if (fs.existsSync(resolved)) {
-      try {
-        const real = path.normalize(fs.realpathSync(resolved)).toLowerCase();
-        if (!real.startsWith(wsRoot)) return false;
-        if (real !== wsRoot && !real.startsWith(wsRoot + path.sep)) return false;
-      } catch {
-        return false;
+    if (workspaceId) {
+      const ws = this.getWorkspace(workspaceId);
+      if (ws && this.checkPathWithinRoot(ws.path, targetPath)) {
+        return true;
       }
     }
-    return true;
+    // Check if targetPath is within ANY authorized workspace
+    return this.isPathInAnyAuthorizedWorkspace(targetPath);
+  }
+
+  public checkPathWithinRoot(rootPath: string, targetPath: string): boolean {
+    try {
+      const normRoot = path.normalize(path.resolve(rootPath)).toLowerCase();
+      const resolved = path.normalize(
+        path.isAbsolute(targetPath) ? targetPath : path.resolve(rootPath, targetPath)
+      ).toLowerCase();
+
+      // Check directory boundary
+      if (!resolved.startsWith(normRoot)) return false;
+      if (resolved !== normRoot && !resolved.startsWith(normRoot + path.sep)) return false;
+
+      // If file exists, ensure realpath does not escape (symlink check)
+      if (fs.existsSync(resolved)) {
+        const real = path.normalize(fs.realpathSync(resolved)).toLowerCase();
+        if (!real.startsWith(normRoot)) return false;
+        if (real !== normRoot && !real.startsWith(normRoot + path.sep)) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public isPathInAnyAuthorizedWorkspace(targetPath: string): boolean {
+    for (const ws of this.workspaces.values()) {
+      if (this.checkPathWithinRoot(ws.path, targetPath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public findAuthorizedWorkspaceForPath(targetPath: string): WorkspaceConfig | undefined {
+    for (const ws of this.workspaces.values()) {
+      if (this.checkPathWithinRoot(ws.path, targetPath)) {
+        return ws;
+      }
+    }
+    return undefined;
+  }
+
+  public authorizeWorkspace(opts: {
+    path: string;
+    name?: string;
+    workspaceId?: string;
+    allowedOperations?: WorkspacePermission[];
+  }): WorkspaceConfig {
+    const rawPath = path.resolve(opts.path);
+    if (!fs.existsSync(rawPath)) {
+      throw new Error(`Directory does not exist: ${rawPath}`);
+    }
+    const realRoot = fs.realpathSync(rawPath);
+    for (const ws of this.workspaces.values()) {
+      if (
+        path.normalize(ws.path).toLowerCase() === path.normalize(realRoot).toLowerCase() ||
+        (opts.workspaceId && ws.workspaceId === opts.workspaceId)
+      ) {
+        return ws;
+      }
+    }
+    const name = opts.name || path.basename(realRoot);
+    const id = opts.workspaceId || path.basename(realRoot).replace(/[^a-zA-Z0-9_-]/g, "_");
+    return this.registerWorkspace({
+      name,
+      path: realRoot,
+      workspaceId: id,
+      allowedOperations: opts.allowedOperations || ["read", "modify", "test", "git"],
+    });
   }
 
   /**
-   * Strictly validates that a relative file path does not escape the workspace boundary.
+   * Strictly validates that a file path does not escape the workspace boundary.
    */
   public resolveSafePath(workspaceId: string, relativePath: string): string {
-    const ws = this.getWorkspace(workspaceId);
+    let ws = workspaceId ? this.getWorkspace(workspaceId) : undefined;
+    if (!ws && path.isAbsolute(relativePath)) {
+      ws = this.findAuthorizedWorkspaceForPath(relativePath);
+    }
+    if (!ws) {
+      ws = this.findAuthorizedWorkspaceForPath(relativePath);
+    }
     if (!ws) {
       throw new Error(`Workspace not found: ${workspaceId}`);
     }
 
-    if (!this.isAuthorizedPath(workspaceId, relativePath)) {
+    if (!this.checkPathWithinRoot(ws.path, relativePath)) {
       throw new Error(`Security Violation: Path traversal outside authorized workspace '${ws.name}' (${relativePath})`);
     }
 
-    return path.resolve(ws.path, relativePath);
+    return path.isAbsolute(relativePath) ? path.normalize(relativePath) : path.resolve(ws.path, relativePath);
   }
 
   public getGitDiff(workspaceId: string): string {

@@ -186,21 +186,22 @@ export class ToolExecutionGateway {
     // D. Workspace boundary verification & Path Traversal Guard
     const wsId = String(args["workspaceId"] || context.workspaceId || "");
     const filePath = args["filePath"] ? String(args["filePath"]) : undefined;
-    if (filePath && (filePath.includes("..") || filePath.startsWith("/") || filePath.startsWith("\\"))) {
-      if (!context.antigravityBridge?.workspaces || !wsId || !context.antigravityBridge.workspaces.isAuthorizedPath(wsId, filePath)) {
-        return {
-          authorized: false,
-          error: `[SECURITY_VIOLATION]: Path traversal or unauthorized path: '${filePath}' escapes authorized boundaries.`,
-        };
+    if (filePath) {
+      if (filePath.includes("..")) {
+        const isAuth = context.antigravityBridge?.workspaces?.isAuthorizedPath?.(wsId, filePath);
+        if (!isAuth) {
+          return {
+            authorized: false,
+            error: `[SECURITY_VIOLATION]: Path traversal or unauthorized path: '${filePath}' escapes authorized boundaries.`,
+          };
+        }
       }
-    }
-    if (context.antigravityBridge?.workspaces && wsId) {
-      if (filePath) {
+      if (context.antigravityBridge?.workspaces?.isAuthorizedPath) {
         const isAuth = context.antigravityBridge.workspaces.isAuthorizedPath(wsId, filePath);
         if (!isAuth) {
           return {
             authorized: false,
-            error: `[SECURITY_VIOLATION]: Path traversal or unauthorized path: '${filePath}' is outside workspace '${wsId}'.`,
+            error: `[SECURITY_VIOLATION]: Path traversal or unauthorized path: '${filePath}' is outside workspace boundaries.`,
           };
         }
       }

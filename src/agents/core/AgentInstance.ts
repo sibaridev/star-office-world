@@ -3,6 +3,8 @@
  * Executes the OBSERVE -> UNDERSTAND -> PLAN -> EXECUTE -> VERIFY loop.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import type { AgentConfig, AgentMemoryEntry, AgentRuntimeState } from "./AgentTypes.js";
 import { AgentLifecycle } from "./AgentLifecycle.js";
 import type { AIProvider } from "../../ai/interfaces/AIProvider.js";
@@ -137,8 +139,39 @@ export class AgentInstance {
     this.taskManager.startTask(task.id);
 
     // Resolve target workspace
-    const effectiveWorkspaceId = task.workspaceId || "default_workspace";
+    let effectiveWorkspaceId = task.workspaceId || "default_workspace";
     let effectiveWorkspacePath = task.workspacePath;
+
+    // Auto-detect target workspace path from task title or description if not explicitly set
+    if (!effectiveWorkspacePath) {
+      const combined = `${task.title} ${task.description}`;
+      const pathMatch = combined.match(/([a-zA-Z]:\\[^\s"';\n]+)/);
+      if (pathMatch) {
+        let extracted = pathMatch[1].trim();
+        try {
+          if (fs.existsSync(extracted)) {
+            const stat = fs.statSync(extracted);
+            if (!stat.isDirectory()) {
+              extracted = path.dirname(extracted);
+            }
+          } else if (path.extname(extracted)) {
+            extracted = path.dirname(extracted);
+          }
+        } catch {}
+
+        if (fs.existsSync(extracted)) {
+          effectiveWorkspacePath = path.resolve(extracted);
+          if (this.antigravityBridge?.workspaces?.authorizeWorkspace) {
+            const ws = this.antigravityBridge.workspaces.authorizeWorkspace({
+              path: effectiveWorkspacePath,
+              name: path.basename(effectiveWorkspacePath),
+            });
+            effectiveWorkspaceId = ws.workspaceId;
+          }
+        }
+      }
+    }
+
     if (!effectiveWorkspacePath && this.antigravityBridge?.workspaces) {
       const ws =
         typeof this.antigravityBridge.workspaces.getWorkspace === "function"

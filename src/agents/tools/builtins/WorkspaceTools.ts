@@ -4,28 +4,54 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { ToolDefinition } from "../ToolTypes.js";
+import type { ToolDefinition, ToolExecutionContext } from "../ToolTypes.js";
 
-function resolveSafePath(workspaceDir: string, relativePath: string): string {
-  // Normalize and resolve against workspace directory
-  const resolved = path.resolve(workspaceDir, relativePath);
-  const normalizedWorkspace = path.resolve(workspaceDir);
+function resolveSafePath(context: ToolExecutionContext, targetPath: string): string {
+  const normTarget = path.normalize(targetPath);
 
-  // Security check: path traversal prevention
-  if (!resolved.startsWith(normalizedWorkspace)) {
-    throw new Error(`Security Violation: Path traversal outside workspace boundary is forbidden (${relativePath}).`);
+  // 1. If absolute path or drive letter:
+  if (path.isAbsolute(normTarget) || /^[a-zA-Z]:[\\/]/.test(normTarget)) {
+    const absPath = path.resolve(normTarget);
+    const absLower = absPath.toLowerCase();
+
+    // Check context.workspaceDir or context.workspacePath
+    const activeDir = path.normalize(path.resolve(context.workspacePath || context.workspaceDir)).toLowerCase();
+    if (absLower === activeDir || absLower.startsWith(activeDir + path.sep)) {
+      return absPath;
+    }
+
+    // Check all authorized workspaces in antigravityBridge.workspaces
+    if (context.antigravityBridge?.workspaces?.isAuthorizedPath) {
+      if (context.antigravityBridge.workspaces.isAuthorizedPath("", absPath)) {
+        return absPath;
+      }
+    }
+
+    throw new Error(`Security Violation: Path traversal or unauthorized path: '${targetPath}' escapes authorized boundaries.`);
   }
+
+  // 2. Relative path: resolve against context.workspacePath or context.workspaceDir
+  const baseDir = path.resolve(context.workspacePath || context.workspaceDir);
+  const resolved = path.resolve(baseDir, normTarget);
+  const normBase = path.normalize(baseDir).toLowerCase();
+  const normResolved = path.normalize(resolved).toLowerCase();
+
+  // If path tries to escape via '..' outside baseDir
+  if (normResolved !== normBase && !normResolved.startsWith(normBase + path.sep)) {
+    throw new Error(`Security Violation: Path traversal outside workspace boundary is forbidden (${targetPath}).`);
+  }
+
   return resolved;
 }
 
 export const workspaceWriteFileTool: ToolDefinition = {
   name: "workspace_write_file",
-  description: "Write or create a file safely within the agent workspace directory.",
+  description: "Write or create a file safely within an authorized workspace directory. Automatically verifies write by reading back content.",
   riskLevel: "low",
   parameters: {
     filePath: {
       type: "string",
-      description: "Relative path inside workspace (e.g., reports/summary.txt)",
+      description: "Relative or authorized absolute path (e.g., reports/summary.txt or C:\\Users\\...)",
       required: true,
     },
     content: {
@@ -43,13 +69,30 @@ export const workspaceWriteFileTool: ToolDefinition = {
     }
 
     try {
-      const fullPath = resolveSafePath(context.workspaceDir, filePath);
+      const fullPath = resolveSafePath(context, filePath);
       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
       fs.writeFileSync(fullPath, content, "utf8");
+
+      // Verify write by reading the file back
+      const readBack = fs.readFileSync(fullPath, "utf8");
+      if (readBack !== content) {
+        return {
+          success: false,
+          output: "",
+          error: `Verification Failure: Read-back content does not match expected write for '${fullPath}'.`,
+        };
+      }
+
       return {
         success: true,
-        output: `File successfully written to ${filePath} (${content.length} characters).`,
-        data: { filePath, bytesWritten: Buffer.byteLength(content, "utf8") },
+        output: `File successfully written and verified at ${fullPath} (${content.length} characters). Content: "${content.slice(0, 80)}"`,
+        data: {
+          filePath,
+          absolutePath: fullPath,
+          bytesWritten: Buffer.byteLength(content, "utf8"),
+          verified: true,
+          readBackMatches: true,
+        },
       };
     } catch (err: unknown) {
       return {
@@ -63,12 +106,12 @@ export const workspaceWriteFileTool: ToolDefinition = {
 
 export const workspaceReadFileTool: ToolDefinition = {
   name: "workspace_read_file",
-  description: "Read the contents of a file inside the agent workspace directory.",
+  description: "Read the contents of a file inside an authorized workspace directory.",
   riskLevel: "low",
   parameters: {
     filePath: {
       type: "string",
-      description: "Relative path inside workspace (e.g., reports/summary.txt)",
+      description: "Relative or authorized absolute path inside workspace",
       required: true,
     },
   },
@@ -79,7 +122,7 @@ export const workspaceReadFileTool: ToolDefinition = {
     }
 
     try {
-      const fullPath = resolveSafePath(context.workspaceDir, filePath);
+      const fullPath = resolveSafePath(context, filePath);
       if (!fs.existsSync(fullPath)) {
         return { success: false, output: "", error: `File not found: ${filePath}` };
       }
@@ -87,7 +130,7 @@ export const workspaceReadFileTool: ToolDefinition = {
       return {
         success: true,
         output: content,
-        data: { filePath, length: content.length },
+        data: { filePath, absolutePath: fullPath, length: content.length },
       };
     } catch (err: unknown) {
       return {
@@ -101,19 +144,19 @@ export const workspaceReadFileTool: ToolDefinition = {
 
 export const workspaceListFilesTool: ToolDefinition = {
   name: "workspace_list_files",
-  description: "List files and subdirectories inside the local Star Office agent file sandbox. IMPORTANT: This only accesses the local scratch directory; an empty directory does NOT indicate Antigravity status or task completion. To check or use Antigravity, call check_antigravity_bridge or delegate_to_antigravity.",
+  description: "List files and subdirectories inside an authorized workspace directory.",
   riskLevel: "low",
   parameters: {
     directory: {
       type: "string",
-      description: "Relative directory to list (leave empty for workspace root)",
+      description: "Relative directory or authorized absolute directory to list (leave empty for workspace root)",
       required: false,
     },
   },
   async execute(args, context) {
     const subDir = String(args["directory"] ?? "");
     try {
-      const targetDir = resolveSafePath(context.workspaceDir, subDir);
+      const targetDir = resolveSafePath(context, subDir || ".");
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
       }
@@ -121,7 +164,7 @@ export const workspaceListFilesTool: ToolDefinition = {
       return {
         success: true,
         output: files.length > 0 ? files.join("\n") : "(empty directory)",
-        data: { directory: subDir, files },
+        data: { directory: subDir, absolutePath: targetDir, files },
       };
     } catch (err: unknown) {
       return {

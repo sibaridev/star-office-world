@@ -4,6 +4,8 @@
  */
 
 export type TaskStatus =
+  | "REQUESTED"
+  | "ACCEPTED"
   | "QUEUED"
   | "PENDING"
   | "ASSIGNED"
@@ -12,12 +14,25 @@ export type TaskStatus =
   | "WAITING_FOR_TOOL"
   | "WAITING_FOR_APPROVAL"
   | "WAITING_DEPENDENCY"
+  | "EXECUTED"
+  | "VERIFIED"
   | "BLOCKED"
   | "PARTIALLY_COMPLETED"
   | "COMPLETED"
   | "FAILED"
   | "CANCELLED"
   | "INTERRUPTED";
+
+export interface TaskExecutionEvidence {
+  tool: string;
+  operation: string;
+  targetPath: string;
+  result: string;
+  verificationStatus: "VERIFIED" | "FAILED" | "PENDING" | "UNVERIFIED";
+  verifiedAt?: number;
+  readBackContent?: string;
+  errorDetails?: string;
+}
 
 export interface TaskStep {
   stepNumber: number;
@@ -85,6 +100,7 @@ export interface OfficeTask {
   dependencies: string[]; // Task IDs that must complete first
   steps: TaskStep[];
   provenance: ToolExecutionProvenance[];
+  evidence?: TaskExecutionEvidence[];
   workspaceId?: string;
   workspacePath?: string;
   acceptanceCriteria?: string[];

@@ -4,7 +4,9 @@
  * and validates acceptance criteria against structured tool execution provenance.
  */
 
-import type { OfficeTask, TaskStatus, ToolExecutionProvenance } from "./TaskTypes.js";
+import fs from "node:fs";
+import path from "node:path";
+import type { OfficeTask, TaskExecutionEvidence, TaskStatus, ToolExecutionProvenance } from "./TaskTypes.js";
 
 export interface VerificationResult {
   canComplete: boolean;
@@ -12,6 +14,7 @@ export interface VerificationResult {
   blockReason?: string;
   incompleteRequirements?: string[];
   evidenceFound?: string[];
+  verifiedEvidence?: TaskExecutionEvidence[];
 }
 
 export class CompletionVerifier {
@@ -21,10 +24,17 @@ export class CompletionVerifier {
     /lacks?\s+(?:access\s+to|tools|filesystem)/i,
     /operating\s+in\s+an\s+environment\s+without/i,
     /cannot\s+access/i,
+    /unable\s+to\s+(?:directly\s+)?(?:write|create|modify|edit|access|inspect|run)/i,
+    /not\s+available\s+in\s+this\s+environment/i,
+    /tools?\s+(?:are\s+)?not\s+available/i,
+    /no\s+(?:filesystem|file-writing|write)\s+tools?/i,
     /run\s+(?:these|the\s+following)\s+commands\s+manually/i,
     /please\s+(?:run|execute)\s+(?:git|manual)/i,
     /paste\s+relevant\s+directory\s+trees/i,
     /unable\s+to\s+inspect/i,
+    /set-content\s+-path/i,
+    /echo\s+.*>/i,
+    /run:\s*```(?:powershell|bash|sh|cmd)?/i,
   ];
 
   /**
@@ -46,9 +56,20 @@ export class CompletionVerifier {
       }
     }
 
+    // 2. Failed Tool Executions Gate
+    const failedExecutions = provenance.filter((p) => p.status === "FAILED");
+    if (failedExecutions.length > 0) {
+      const lastFailed = failedExecutions[failedExecutions.length - 1];
+      return {
+        canComplete: false,
+        status: "FAILED",
+        blockReason: `Execution Failure: Tool '${lastFailed.tool}' failed with error: ${lastFailed.error || "Unknown failure"}`,
+      };
+    }
+
     const completedToolExecutions = provenance.filter((p) => p.status === "COMPLETED");
 
-    // 2. Required Tools Enforcement
+    // 3. Required Tools Enforcement
     if (task.requiredTools && task.requiredTools.length > 0) {
       const executedTools = new Set(completedToolExecutions.map((p) => p.tool));
       const missing = task.requiredTools.filter((t) => !executedTools.has(t));
@@ -62,7 +83,7 @@ export class CompletionVerifier {
       }
     }
 
-    // 3. Inspection / Audit Task Integrity Enforcement
+    // 4. Inspection / Audit Task Integrity Enforcement
     const combinedText = `${task.title} ${task.description}`;
     const isInspectionTask =
       /\b(?:audit|inspect|inspection|verify|verification|check|status)\b/i.test(combinedText) &&
@@ -77,21 +98,88 @@ export class CompletionVerifier {
       };
     }
 
-    // 3b. File Creation / Modification Task Integrity Enforcement
+    // 5. File Creation / Modification Task Integrity Enforcement with Read-Back Verification
     const isModificationTask =
       /\b(?:create|write|edit|modify|update|add|append|delete|refactor|build)\b/i.test(task.title) &&
-      /\b(?:file|document|script|code|project|test\.md|readme|component)\b/i.test(combinedText);
+      /\b(?:file|document|script|code|project|test\.md|hello\.txt|readme|component)\b/i.test(combinedText);
 
-    if (isModificationTask && completedToolExecutions.length === 0) {
+    const verifiedEvidence: TaskExecutionEvidence[] = [];
+
+    // Verify completed write operations by reading files back from disk
+    const writeExecutions = completedToolExecutions.filter(
+      (p) => p.tool === "workspace_write_file"
+    );
+
+    for (const writeExec of writeExecutions) {
+      const targetPath = (writeExec.inputParameters?.["filePath"] as string) || "";
+      if (targetPath) {
+        let resolvedPath = path.normalize(targetPath);
+        if (!path.isAbsolute(resolvedPath) && task.workspacePath) {
+          resolvedPath = path.normalize(path.resolve(task.workspacePath, targetPath));
+        }
+
+        if (!fs.existsSync(resolvedPath)) {
+          return {
+            canComplete: false,
+            status: "FAILED",
+            blockReason: `Verification Failure: Target file '${resolvedPath}' does not exist on disk after write operation.`,
+          };
+        }
+
+        try {
+          const readBack = fs.readFileSync(resolvedPath, "utf8");
+          const expectedContent = (writeExec.inputParameters?.["content"] as string) || "";
+          const matches =
+            !expectedContent ||
+            readBack === expectedContent ||
+            readBack.includes(expectedContent.trim());
+
+          if (!matches) {
+            return {
+              canComplete: false,
+              status: "FAILED",
+              blockReason: `Verification Failure: Read-back content does not match expected write for '${resolvedPath}'.`,
+            };
+          }
+
+          verifiedEvidence.push({
+            tool: writeExec.tool,
+            operation: "workspace_write_file",
+            targetPath: resolvedPath,
+            result: `Verified on disk (${readBack.length} bytes)`,
+            verificationStatus: "VERIFIED",
+            verifiedAt: Date.now(),
+            readBackContent: readBack,
+          });
+        } catch (err: unknown) {
+          return {
+            canComplete: false,
+            status: "FAILED",
+            blockReason: `Verification Read Error: Could not read back written file '${resolvedPath}': ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      }
+    }
+
+    if (isModificationTask && writeExecutions.length === 0 && completedToolExecutions.length === 0) {
       return {
         canComplete: false,
         status: "BLOCKED",
         blockReason:
-          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (e.g. workspace_write_file, delegate_to_antigravity) were successfully executed.",
+          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (workspace_write_file) were successfully executed.",
       };
     }
 
-    // 4. Acceptance Criteria Verification
+    if (isModificationTask && writeExecutions.length > 0 && verifiedEvidence.length === 0) {
+      return {
+        canComplete: false,
+        status: "FAILED",
+        blockReason:
+          "Execution Integrity Failure: File write could not be verified on disk.",
+      };
+    }
+
+    // 6. Acceptance Criteria Verification
     if (task.acceptanceCriteria && task.acceptanceCriteria.length > 0) {
       const incomplete: string[] = [];
       const evidence: string[] = [];
@@ -144,6 +232,7 @@ export class CompletionVerifier {
     return {
       canComplete: true,
       status: "COMPLETED",
+      verifiedEvidence: verifiedEvidence.length > 0 ? verifiedEvidence : undefined,
     };
   }
 

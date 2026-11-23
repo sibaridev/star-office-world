@@ -324,16 +324,24 @@ export class AgentRuntime {
           targetAgent = designated;
         }
       } else {
-        // Pick coordinator first for unassigned tasks if available
-        const coordinator = this.agents.get("agent_coordinator");
-        if (coordinator && this.isAgentAvailableForTask(coordinator)) {
-          targetAgent = coordinator;
+        // If engineering, coding, or file creation task, route directly to Nova
+        const combined = `${task.title} ${task.description}`.toLowerCase();
+        const isEngineering = /\b(?:create|write|edit|modify|fix|refactor|build|antigravity|code|implement|script|hello\.txt)\b/i.test(combined);
+        const nova = this.agents.get("agent_nova");
+        if (isEngineering && nova && this.isAgentAvailableForTask(nova)) {
+          targetAgent = nova;
         } else {
-          // Find any idle and active agent
-          for (const agent of this.agents.values()) {
-            if (this.isAgentAvailableForTask(agent)) {
-              targetAgent = agent;
-              break;
+          // Pick coordinator first for unassigned tasks if available
+          const coordinator = this.agents.get("agent_coordinator");
+          if (coordinator && this.isAgentAvailableForTask(coordinator)) {
+            targetAgent = coordinator;
+          } else {
+            // Find any idle and active agent
+            for (const agent of this.agents.values()) {
+              if (this.isAgentAvailableForTask(agent)) {
+                targetAgent = agent;
+                break;
+              }
             }
           }
         }

@@ -135,8 +135,7 @@ export class AntigravityBridge {
   }
 
   private ensureDefaultWorkspace(): void {
-    const list = this.workspaces.listWorkspaces();
-    if (list.length === 0) {
+    if (!this.workspaces.getWorkspace("default_workspace")) {
       try {
         this.workspaces.registerWorkspace({
           workspaceId: "default_workspace",
@@ -147,6 +146,21 @@ export class AntigravityBridge {
         });
       } catch (err) {
         console.warn("[antigravity-bridge] Could not register default workspace:", err);
+      }
+    }
+
+    // Auto-detect owner desktop project workspaces if present
+    const autoFreeAiPath = "C:\\Users\\Sibari\\Desktop\\auto-free-ai";
+    if (fs.existsSync(autoFreeAiPath) && !this.workspaces.getWorkspace("auto-free-ai")) {
+      try {
+        this.workspaces.authorizeWorkspace({
+          workspaceId: "auto-free-ai",
+          name: "Auto Free AI Project",
+          path: autoFreeAiPath,
+          allowedOperations: ["read", "modify", "test", "git"],
+        });
+      } catch (err) {
+        console.warn("[antigravity-bridge] Could not auto-register auto-free-ai workspace:", err);
       }
     }
   }

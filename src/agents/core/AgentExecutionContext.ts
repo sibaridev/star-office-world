@@ -67,7 +67,7 @@ export class AgentExecutionContext {
     this.requiredTools = opts.requiredTools ? [...opts.requiredTools] : [];
     this.executionLimits = {
       temperature: opts.executionLimits?.temperature ?? 0.7,
-      maxIterations: opts.executionLimits?.maxIterations ?? 8,
+      maxIterations: opts.executionLimits?.maxIterations ?? 0,
       timeoutMs: opts.executionLimits?.timeoutMs ?? 60000,
     };
     this.dataDir = opts.dataDir;

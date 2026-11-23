@@ -43,7 +43,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.2,
-      maxIterations: 10,
+      maxIterations: 0,
       timeoutMs: 90000,
       retryPolicy: "exponential",
     },
@@ -80,7 +80,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.2,
-      maxIterations: 8,
+      maxIterations: 0,
       timeoutMs: 45000,
       retryPolicy: "exponential",
     },
@@ -109,7 +109,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.3,
-      maxIterations: 6,
+      maxIterations: 0,
       timeoutMs: 30000,
       retryPolicy: "none",
     },
@@ -145,7 +145,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.1,
-      maxIterations: 8,
+      maxIterations: 0,
       timeoutMs: 60000,
       retryPolicy: "exponential",
     },
@@ -181,7 +181,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.2,
-      maxIterations: 8,
+      maxIterations: 0,
       timeoutMs: 60000,
       retryPolicy: "exponential",
     },
@@ -210,7 +210,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.1,
-      maxIterations: 6,
+      maxIterations: 0,
       timeoutMs: 40000,
       retryPolicy: "none",
     },
@@ -239,7 +239,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.1,
-      maxIterations: 6,
+      maxIterations: 0,
       timeoutMs: 45000,
       retryPolicy: "none",
     },
@@ -268,7 +268,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.3,
-      maxIterations: 8,
+      maxIterations: 0,
       timeoutMs: 60000,
       retryPolicy: "exponential",
     },
@@ -297,7 +297,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.3,
-      maxIterations: 8,
+      maxIterations: 0,
       timeoutMs: 60000,
       retryPolicy: "none",
     },
@@ -326,7 +326,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.1,
-      maxIterations: 6,
+      maxIterations: 0,
       timeoutMs: 40000,
       retryPolicy: "none",
     },
@@ -355,7 +355,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.2,
-      maxIterations: 6,
+      maxIterations: 0,
       timeoutMs: 45000,
       retryPolicy: "none",
     },
@@ -384,7 +384,7 @@ export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
     },
     defaultExecution: {
       temperature: 0.3,
-      maxIterations: 6,
+      maxIterations: 0,
       timeoutMs: 45000,
       retryPolicy: "none",
     },

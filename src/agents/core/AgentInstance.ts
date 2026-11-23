@@ -135,7 +135,21 @@ export class AgentInstance {
     if (!this.currentTask || this.isRunning) return;
     this.isRunning = true;
     const task = this.currentTask;
-    const effectiveMaxIterations = maxIterations ?? this.config.execution?.maxIterations ?? 8;
+    // Turn limit governance:
+    // User requirement: "never make turns limit"
+    // By default, turn limits are completely disabled across Star Office World.
+    // Tasks run continuously until verified completion or terminal failure.
+    // A turn limit is only enforced if explicitly passed as a positive number (> 0),
+    // or if STAR_OFFICE_ENFORCE_TURN_LIMIT === "true" and configured > 0.
+    const explicitLimit = typeof maxIterations === "number" && maxIterations > 0 ? maxIterations : undefined;
+    const enforceLimits = process.env.STAR_OFFICE_ENFORCE_TURN_LIMIT === "true";
+    const configLimit =
+      typeof this.config.execution?.maxIterations === "number" && this.config.execution.maxIterations > 0
+        ? this.config.execution.maxIterations
+        : undefined;
+
+    const hasTurnLimit = explicitLimit !== undefined || (enforceLimits && configLimit !== undefined);
+    const effectiveMaxIterations = explicitLimit ?? (enforceLimits && configLimit ? configLimit : Infinity);
     this.taskManager.startTask(task.id);
 
     // Resolve target workspace
@@ -217,12 +231,16 @@ export class AgentInstance {
       let iteration = 0;
       let completed = false;
 
-      while (iteration < effectiveMaxIterations && !completed) {
+      while ((!hasTurnLimit || iteration < effectiveMaxIterations) && !completed) {
         iteration++;
 
         // 1. OBSERVE & THINK (Actual Model Call)
         this.lifecycle.transition("THINKING", `Turn #${iteration}`);
-        this.emitStateChange(`Thinking (Turn ${iteration}/${effectiveMaxIterations})...`);
+        this.emitStateChange(
+          hasTurnLimit
+            ? `Thinking (Turn ${iteration}/${effectiveMaxIterations})...`
+            : `Thinking (Turn ${iteration})...`
+        );
 
         const prompt = this.buildPrompt(task, iteration);
         const aiResponse = await this.aiProvider.generate({
@@ -297,7 +315,7 @@ export class AgentInstance {
               toolResult: `Blocker: ${reason}. You must execute the required action tools before completing.`,
               thought: "Must execute required action tools before completing",
             });
-            if (iteration >= effectiveMaxIterations) {
+            if (hasTurnLimit && iteration >= effectiveMaxIterations) {
               this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
               this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
               completed = true;
@@ -327,7 +345,7 @@ export class AgentInstance {
               toolResult: `Blocker: ${reason}. Text response alone is not sufficient; invoke the appropriate action tool.`,
               thought: "Must execute required action tools before completing",
             });
-            if (iteration >= effectiveMaxIterations) {
+            if (hasTurnLimit && iteration >= effectiveMaxIterations) {
               this.lifecycle.transition("ERROR", `Blocked: ${reason.slice(0, 80)}`);
               this.emitStateChange(`Blocked: ${reason.slice(0, 80)}`);
               completed = true;
@@ -343,7 +361,7 @@ export class AgentInstance {
         }
       }
 
-      if (!completed && iteration >= effectiveMaxIterations) {
+      if (!completed && hasTurnLimit && iteration >= effectiveMaxIterations) {
         const lastStep = task.steps[task.steps.length - 1];
         const findingsSummary = task.steps
           .map((s) => `[${s.tool || "decision"}]: ${s.description} -> ${s.toolResult || ""}`)

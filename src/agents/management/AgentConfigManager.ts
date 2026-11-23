@@ -44,7 +44,7 @@ export const DEFAULT_TEAM_CONFIG: AgentTeamConfig = {
 
 export const DEFAULT_EXECUTION_CONFIG: AgentExecutionConfig = {
   temperature: 0.7,
-  maxIterations: 8,
+  maxIterations: 0, // 0 = unlimited turns
   timeoutMs: 60000,
   retryPolicy: "none",
 };

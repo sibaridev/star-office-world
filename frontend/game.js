@@ -1001,20 +1001,74 @@ function create() {
   coordsDisplay = document.getElementById('coords-display');
   coordsToggle = document.getElementById('coords-toggle');
 
-  coordsToggle.addEventListener('click', () => {
-    showCoords = !showCoords;
-    coordsOverlay.style.display = showCoords ? 'block' : 'none';
-    coordsToggle.textContent = showCoords ? 'Hide Coords' : 'Show Coords';
-    coordsToggle.style.background = showCoords ? '#e94560' : '#333';
-  });
+  if (coordsToggle) {
+    coordsToggle.addEventListener('click', () => {
+      showCoords = !showCoords;
+      if (!showCoords && coordsOverlay) {
+        coordsOverlay.style.display = 'none';
+      }
+      coordsToggle.textContent = showCoords ? 'Hide Coords' : 'Show Coords';
+      coordsToggle.style.background = showCoords ? '#e94560' : '#333';
+      coordsToggle.style.borderColor = showCoords ? '#f43f5e' : '#555';
+    });
+  }
 
   game.input.on('pointermove', (pointer) => {
-    if (!showCoords) return;
-    const x = Math.max(0, Math.min(config.width - 1, Math.round(pointer.x)));
-    const y = Math.max(0, Math.min(config.height - 1, Math.round(pointer.y)));
-    coordsDisplay.textContent = `${x}, ${y}`;
-    coordsOverlay.style.left = (pointer.x + 18) + 'px';
-    coordsOverlay.style.top = (pointer.y + 18) + 'px';
+    if (!showCoords || !coordsOverlay || !coordsDisplay) return;
+
+    const worldX = Math.round(pointer.worldX !== undefined ? pointer.worldX : pointer.x);
+    const worldY = Math.round(pointer.worldY !== undefined ? pointer.worldY : pointer.y);
+    const x = Math.max(0, Math.min(config.width - 1, worldX));
+    const y = Math.max(0, Math.min(config.height - 1, worldY));
+    coordsDisplay.textContent = `X: ${x} | Y: ${y}`;
+
+    let screenX, screenY;
+    if (pointer.event && typeof pointer.event.clientX === 'number') {
+      screenX = pointer.event.clientX;
+      screenY = pointer.event.clientY;
+    } else if (game.canvas) {
+      const rect = game.canvas.getBoundingClientRect();
+      screenX = rect.left + (pointer.x / config.width) * rect.width;
+      screenY = rect.top + (pointer.y / config.height) * rect.height;
+    } else {
+      screenX = pointer.x;
+      screenY = pointer.y;
+    }
+
+    coordsOverlay.style.display = 'block';
+
+    let posX = screenX + 16;
+    let posY = screenY + 16;
+    if (posX + 130 > window.innerWidth) {
+      posX = screenX - 135;
+    }
+    if (posY + 40 > window.innerHeight) {
+      posY = screenY - 42;
+    }
+
+    coordsOverlay.style.left = posX + 'px';
+    coordsOverlay.style.top = posY + 'px';
+  });
+
+  if (game.canvas) {
+    game.canvas.addEventListener('mouseleave', () => {
+      if (coordsOverlay) coordsOverlay.style.display = 'none';
+    });
+  }
+
+  game.input.on('pointerdown', (pointer) => {
+    if (!showCoords || !coordsDisplay) return;
+    const worldX = Math.round(pointer.worldX !== undefined ? pointer.worldX : pointer.x);
+    const worldY = Math.round(pointer.worldY !== undefined ? pointer.worldY : pointer.y);
+    const x = Math.max(0, Math.min(config.width - 1, worldX));
+    const y = Math.max(0, Math.min(config.height - 1, worldY));
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(`${x}, ${y}`).catch(() => {});
+    }
+    coordsDisplay.textContent = `Copied: ${x}, ${y}!`;
+    setTimeout(() => {
+      if (coordsDisplay && showCoords) coordsDisplay.textContent = `X: ${x} | Y: ${y}`;
+    }, 800);
   });
 
   loadMemo();

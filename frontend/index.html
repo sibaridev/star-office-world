@@ -1527,7 +1527,7 @@
             </div>
         </div>
     </aside>
-    <div id="coords-overlay" style="display:none; position:fixed; pointer-events:none; background:rgba(0,0,0,0.85); color:#fff; font-family:ArkPixel,monospace; font-size:14px; padding:8px 12px; border-radius:4px; z-index:99999;">
+    <div id="coords-overlay" style="display:none; position:fixed; pointer-events:none; background:rgba(0,0,0,0.85); color:#fff; font-family:ArkPixel,monospace; font-size:14px; padding:8px 12px; border-radius:4px; z-index:99999; box-shadow:0 4px 12px rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.2); white-space:nowrap;">
         <div id="coords-display">X: 0 | Y: 0</div>
     </div>
     <button id="coords-toggle" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); right:12px; z-index:999999; padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">
@@ -4411,12 +4411,17 @@ function toggleBrokerPanel() {
             coordsToggle = document.getElementById('coords-toggle');
 
             // Guest agents rendered from /agents
-            coordsToggle.addEventListener('click', () => {
-                showCoords = !showCoords;
-                coordsOverlay.style.display = showCoords ? 'block' : 'none';
-                coordsToggle.textContent = showCoords ? t('hideCoords') : t('showCoords');
-                coordsToggle.style.background = showCoords ? '#e94560' : '#333';
-            });
+            if (coordsToggle) {
+                coordsToggle.addEventListener('click', () => {
+                    showCoords = !showCoords;
+                    if (!showCoords && coordsOverlay) {
+                        coordsOverlay.style.display = 'none';
+                    }
+                    coordsToggle.textContent = showCoords ? t('hideCoords') : t('showCoords');
+                    coordsToggle.style.background = showCoords ? '#e94560' : '#333';
+                    coordsToggle.style.borderColor = showCoords ? '#f43f5e' : '#555';
+                });
+            }
 
             // Mobile touch panning
             // Touch default pan setting
@@ -4587,14 +4592,63 @@ function toggleBrokerPanel() {
 
             // Mouse move handler for coordinate display
             game.input.on('pointermove', (pointer) => {
-                if (!showCoords) return;
-                // Clamp to map size (0..width-1 / 0..height-1)
-                const x = Math.max(0, Math.min(config.width - 1, Math.round(pointer.x)));
-                const y = Math.max(0, Math.min(config.height - 1, Math.round(pointer.y)));
-                coordsDisplay.textContent = `${x}, ${y}`;
-                // Position overlay next to mouse
-                coordsOverlay.style.left = (pointer.x + 18) + 'px';
-                coordsOverlay.style.top = (pointer.y + 18) + 'px';
+                if (!showCoords || !coordsOverlay || !coordsDisplay) return;
+
+                // Accurate map/world coordinates (accounting for camera scroll/zoom)
+                const worldX = Math.round(pointer.worldX !== undefined ? pointer.worldX : pointer.x);
+                const worldY = Math.round(pointer.worldY !== undefined ? pointer.worldY : pointer.y);
+                const x = Math.max(0, Math.min(config.width - 1, worldX));
+                const y = Math.max(0, Math.min(config.height - 1, worldY));
+                coordsDisplay.textContent = `X: ${x} | Y: ${y}`;
+
+                // Calculate actual screen/viewport position (clientX/Y from native DOM event)
+                let screenX, screenY;
+                if (pointer.event && typeof pointer.event.clientX === 'number') {
+                    screenX = pointer.event.clientX;
+                    screenY = pointer.event.clientY;
+                } else if (game.canvas) {
+                    const rect = game.canvas.getBoundingClientRect();
+                    screenX = rect.left + (pointer.x / config.width) * rect.width;
+                    screenY = rect.top + (pointer.y / config.height) * rect.height;
+                } else {
+                    screenX = pointer.x;
+                    screenY = pointer.y;
+                }
+
+                coordsOverlay.style.display = 'block';
+
+                let posX = screenX + 16;
+                let posY = screenY + 16;
+                if (posX + 130 > window.innerWidth) {
+                    posX = screenX - 135;
+                }
+                if (posY + 40 > window.innerHeight) {
+                    posY = screenY - 42;
+                }
+
+                coordsOverlay.style.left = posX + 'px';
+                coordsOverlay.style.top = posY + 'px';
+            });
+
+            if (game.canvas) {
+                game.canvas.addEventListener('mouseleave', () => {
+                    if (coordsOverlay) coordsOverlay.style.display = 'none';
+                });
+            }
+
+            game.input.on('pointerdown', (pointer) => {
+                if (!showCoords || !coordsDisplay) return;
+                const worldX = Math.round(pointer.worldX !== undefined ? pointer.worldX : pointer.x);
+                const worldY = Math.round(pointer.worldY !== undefined ? pointer.worldY : pointer.y);
+                const x = Math.max(0, Math.min(config.width - 1, worldX));
+                const y = Math.max(0, Math.min(config.height - 1, worldY));
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(`${x}, ${y}`).catch(() => {});
+                }
+                coordsDisplay.textContent = `Copied: ${x}, ${y}!`;
+                setTimeout(() => {
+                    if (coordsDisplay && showCoords) coordsDisplay.textContent = `X: ${x} | Y: ${y}`;
+                }, 800);
             });
 
             // Load yesterday memo

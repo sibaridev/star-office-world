@@ -20,7 +20,7 @@ export interface VerificationResult {
 export class CompletionVerifier {
   private static REFUSAL_PATTERNS = [
     /without\s+(?:access\s+to|direct\s+filesystem\s+access)/i,
-    /do\s+not\s+have\s+(?:access\s+to|filesystem\s+access|tools)/i,
+    /do\s+not\s+have\s+(?:[^.?!;\n]*?\b)?(?:access\s+to|filesystem\s+access|tools|capability|permissions?)/i,
     /lacks?\s+(?:access\s+to|tools|filesystem)/i,
     /operating\s+in\s+an\s+environment\s+without/i,
     /cannot\s+access/i,
@@ -100,8 +100,8 @@ export class CompletionVerifier {
 
     // 5. File Creation / Modification Task Integrity Enforcement with Read-Back Verification
     const isModificationTask =
-      /\b(?:create|write|edit|modify|update|add|append|delete|refactor|build)\b/i.test(task.title) &&
-      /\b(?:file|document|script|code|project|test\.md|hello\.txt|readme|component)\b/i.test(combinedText);
+      /\b(?:create|write|edit|modify|update|add|append|delete|refactor|build|modernize|polish|enhance|redesign|revamp|fix|patch|implement|style)\b/i.test(combinedText) &&
+      /\b(?:file|document|script|code|project|test\.md|hello\.txt|readme|component|html|css|js|ts|ui|bar|view)\b/i.test(combinedText);
 
     const verifiedEvidence: TaskExecutionEvidence[] = [];
 

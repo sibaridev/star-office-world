@@ -686,8 +686,34 @@ function applySceneStateEvent(scene, statePayload) {
 }
 
 
-// State control functions (for testing)
+// State control functions
+function updateStarStatusControlBar(state, detail) {
+  const map = {
+    idle: { btn: 'btn-state-idle', label: 'STANDBY', color: '#38bdf8' },
+    writing: { btn: 'btn-state-writing', label: 'WORKING', color: '#10b981' },
+    syncing: { btn: 'btn-state-syncing', label: 'SYNCING', color: '#38bdf8' },
+    error: { btn: 'btn-state-error', label: 'ALERTING', color: '#ef4444' }
+  };
+  Object.values(map).forEach(item => {
+    const el = document.getElementById(item.btn);
+    if (el) el.classList.remove('is-active');
+  });
+  const current = map[state] || map.idle;
+  const activeEl = document.getElementById(current.btn);
+  if (activeEl) activeEl.classList.add('is-active');
+
+  const labelEl = document.getElementById('star-current-state-label');
+  if (labelEl) labelEl.textContent = current.label;
+
+  const dotEl = document.querySelector('#star-live-indicator .pulse-dot');
+  if (dotEl) {
+    dotEl.style.background = current.color;
+    dotEl.style.boxShadow = '0 0 6px ' + current.color;
+  }
+}
+
 function setState(state, detail) {
+  updateStarStatusControlBar(state, detail);
   fetch('set_state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1140,6 +1166,7 @@ function normalizeState(s) {
 
 function applyMainAgentPayload(payload) {
   const nextState = normalizeState(payload && payload.state);
+  updateStarStatusControlBar(nextState, (payload && payload.detail) || '');
   const stateInfo = STATES[nextState] || STATES.idle;
   const nextLine = '[' + stateInfo.name + '] ' + ((payload && payload.detail) || '...');
   const changed = (pendingDesiredState === null) && (nextState !== currentState);

@@ -196,16 +196,18 @@
         #control-bar {
             position: relative;
             background: #141722;
-            padding: 10px 10px 12px;
+            padding: 10px 12px 14px;
             border-radius: 0;
             border: 4px solid #0e1119;
-            box-shadow: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
             width: 390px;
-            height: 300px;
+            min-height: 300px;
+            height: auto;
             display: flex;
             flex-direction: column;
             gap: 10px;
-            overflow: hidden;
+            box-sizing: border-box;
+            overflow: visible;
         }
         #control-bar::before {
             content: '';
@@ -672,27 +674,59 @@
             font-size: 20px;
             letter-spacing: 1px;
         }
-        #control-buttons button { height: 52px; }
-        #control-bar button {
-            background: #3a3f4f;
-            color: #fff;
-            border: 2px solid #555;
-            border-radius: 4px;
-            padding: 8px 10px;
-            cursor: pointer;
+        /* Modernized Star Status Bar & Pixel Deck Skin */
+        #control-bar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 2px 4px 6px;
+            border-bottom: 1px solid #1e293b;
+        }
+        #control-bar-title {
+            color: #ffd700;
+            font-size: 15px;
+            font-weight: bold;
+            letter-spacing: 1px;
             font-family: 'ArkPixel', monospace;
-            font-size: 12px;
-            transition: all 0.2s;
+            text-shadow: 0 0 6px rgba(255, 215, 0, 0.4);
         }
-        #control-bar button:hover {
-            background: #4a4f5f;
-            border-color: #e94560;
+        .status-live-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-family: 'ArkPixel', monospace;
+            color: #38bdf8;
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            padding: 2px 8px;
+            border-radius: 10px;
         }
-        /* Star status buttons sprite skin */
-        #control-bar #btn-state-idle,
-        #control-bar #btn-state-writing,
-        #control-bar #btn-state-syncing,
-        #control-bar #btn-state-error {
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #38bdf8;
+            box-shadow: 0 0 6px #38bdf8;
+            display: inline-block;
+            animation: pulse-glow 2s infinite;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+        .control-subpanel {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        #control-state-toggles {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+        }
+        .state-toggle-btn {
+            position: relative;
             background-image: url('btn-state-sprite.png?v=20260323_023357');
             background-color: transparent !important;
             background-repeat: no-repeat;
@@ -704,30 +738,84 @@
             -webkit-appearance: none;
             image-rendering: pixelated;
             color: #5e6366;
-            font-weight: 400;
-            text-shadow: none;
-            padding: 0 8px 9px;
+            font-weight: bold;
+            font-family: 'ArkPixel', monospace;
+            font-size: 13px;
+            padding: 0 4px 6px;
+            height: 48px;
             line-height: 1;
-            transition: padding-top .08s ease, padding-bottom .08s ease, filter .12s ease;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
         }
-        #control-bar #btn-state-idle:hover,
-        #control-bar #btn-state-writing:hover,
-        #control-bar #btn-state-syncing:hover,
-        #control-bar #btn-state-error:hover {
-            background-color: transparent !important;
-            filter: brightness(1.04);
+        .state-toggle-btn:hover {
+            filter: brightness(1.12);
         }
-        #control-bar #btn-state-idle:active,
-        #control-bar #btn-state-writing:active,
-        #control-bar #btn-state-syncing:active,
-        #control-bar #btn-state-error:active {
+        .state-toggle-btn:active,
+        .state-toggle-btn.is-active {
             background-position: 50% 0;
-            padding-top: 5px;
-            padding-bottom: 0;
-            filter: brightness(0.97);
+            padding-top: 4px;
+            padding-bottom: 2px;
+            filter: brightness(1.18);
+            color: #fff !important;
         }
-        /* Decorate button sprite skin */
-        #control-bar #btn-open-drawer {
+        .state-toggle-btn.is-active {
+            filter: brightness(1.25) drop-shadow(0 0 6px rgba(244,196,48,0.7));
+        }
+        .state-toggle-btn .state-btn-led {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #475569;
+            margin-bottom: 2px;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .state-toggle-btn.is-active .state-btn-led {
+            background: #f4c430;
+            box-shadow: 0 0 8px #f4c430;
+        }
+        #btn-state-error.is-active .state-btn-led {
+            background: #ef4444;
+            box-shadow: 0 0 8px #ef4444;
+        }
+        #btn-state-syncing.is-active .state-btn-led {
+            background: #38bdf8;
+            box-shadow: 0 0 8px #38bdf8;
+        }
+        #btn-state-writing.is-active .state-btn-led {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        /* Deck Navigation Buttons */
+        #control-nav-deck {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 2px;
+        }
+        .office-deck-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: 'ArkPixel', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+            box-sizing: border-box;
+            image-rendering: pixelated;
+        }
+        .office-deck-btn:active {
+            transform: translateY(1px);
+        }
+        .office-deck-btn.btn-decor {
             background-image: url('btn-open-drawer-sprite.png?v=20260323_023357') !important;
             background-color: transparent !important;
             background-repeat: no-repeat !important;
@@ -735,26 +823,64 @@
             background-position: 0 0 !important;
             border: none !important;
             border-radius: 0 !important;
-            appearance: none;
-            -webkit-appearance: none;
-            image-rendering: pixelated;
+            height: 48px;
             color: #5e6366 !important;
-            font-weight: 400 !important;
-            font-size: 15px !important;
-            text-shadow: none !important;
-            padding: 0 10px 10px !important;
-            line-height: 1 !important;
-            transition: padding-top .08s ease, padding-bottom .08s ease, filter .12s ease;
+            font-size: 14px !important;
+            padding: 0 10px 8px !important;
         }
-        #control-bar #btn-open-drawer:hover {
-            background-color: transparent !important;
-            filter: brightness(1.04);
+        .office-deck-btn.btn-decor:hover {
+            filter: brightness(1.08);
         }
-        #control-bar #btn-open-drawer:active {
+        .office-deck-btn.btn-decor:active {
             background-position: 50% 0 !important;
-            padding-top: 5px !important;
-            padding-bottom: 5px !important;
-            filter: brightness(0.97);
+            padding-top: 4px !important;
+            padding-bottom: 4px !important;
+        }
+        .deck-btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .office-deck-btn.btn-task-board {
+            background: #1e293b;
+            color: #f4c430;
+            border: 2px solid #f4c430;
+            box-shadow: 0 2px 6px rgba(244,196,48,0.15);
+        }
+        .office-deck-btn.btn-task-board:hover {
+            background: #283548;
+            box-shadow: 0 0 10px rgba(244,196,48,0.35);
+        }
+        .office-deck-btn.btn-meeting {
+            background: #0f172a;
+            color: #38bdf8;
+            border: 2px solid #38bdf8;
+            box-shadow: 0 2px 6px rgba(56,189,248,0.15);
+        }
+        .office-deck-btn.btn-meeting:hover {
+            background: #1e293b;
+            box-shadow: 0 0 10px rgba(56,189,248,0.35);
+        }
+        .office-deck-btn.btn-activity {
+            grid-column: 1 / -1;
+            background: #0f172a;
+            color: #34d399;
+            border: 2px solid #34d399;
+            box-shadow: 0 2px 6px rgba(52,211,153,0.15);
+            padding: 7px 12px;
+        }
+        .office-deck-btn.btn-activity:hover {
+            background: #132420;
+            box-shadow: 0 0 10px rgba(52,211,153,0.35);
+        }
+        .deck-badge {
+            background: #f4c430;
+            color: #0b1329;
+            font-size: 11px;
+            font-weight: 900;
+            padding: 1px 6px;
+            border-radius: 10px;
+            margin-left: auto;
         }
         /* Guest Agent List Panel */
         #guest-agent-panel {
@@ -1229,16 +1355,52 @@
         
         <!-- Status Control Bar -->
         <div id="control-bar">
-            <div id="control-bar-title">Star Status</div>
-            <div id="control-buttons">
-                <button id="btn-state-idle" onclick="setState('idle','Standing by')">Idle</button>
-                <button id="btn-state-writing" onclick="setState('writing','Working')">Work</button>
-                <button id="btn-state-syncing" onclick="setState('syncing','Syncing')">Sync</button>
-                <button id="btn-state-error" onclick="setState('error','Alerting')">Alert</button>
-                <button id="btn-open-drawer" onclick="toggleAssetDrawer()">Decorate Room</button>
-                <button id="btn-open-tasks" onclick="toggleTaskBoard(true)" style="grid-column:1/-1; background:#1e293b; color:#f4c430; border:2px solid #f4c430; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:2px;">📋 Task Board</button>
-                <button id="btn-open-meeting" onclick="openMeetingView()" style="grid-column:1/-1; background:#0f172a; color:#38bdf8; border:2px solid #38bdf8; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:4px;">🎙️ Team Meeting</button>
-                <button id="btn-open-activity" onclick="openActivityMonitorView()" style="grid-column:1/-1; background:#0f172a; color:#34d399; border:2px solid #34d399; font-family:ArkPixel,monospace; font-size:13px; font-weight:bold; cursor:pointer; padding:6px; border-radius:4px; margin-top:4px;">📊 Activity Monitor</button>
+            <div id="control-bar-header">
+                <span id="control-bar-title">Star Status</span>
+                <span id="star-live-indicator" class="status-live-badge"><span class="pulse-dot"></span> <span id="star-current-state-label">STANDBY</span></span>
+            </div>
+
+            <!-- Subpanel 1: State Toggles with Active LEDs -->
+            <div id="control-state-toggles" class="control-subpanel">
+                <button id="btn-state-idle" class="state-toggle-btn is-active" onclick="setState('idle','Standing by')" title="Set idle state">
+                    <span class="state-btn-led"></span>
+                    <span class="state-btn-text">Idle</span>
+                </button>
+                <button id="btn-state-writing" class="state-toggle-btn" onclick="setState('writing','Working')" title="Set working state">
+                    <span class="state-btn-led"></span>
+                    <span class="state-btn-text">Work</span>
+                </button>
+                <button id="btn-state-syncing" class="state-toggle-btn" onclick="setState('syncing','Syncing')" title="Set syncing state">
+                    <span class="state-btn-led"></span>
+                    <span class="state-btn-text">Sync</span>
+                </button>
+                <button id="btn-state-error" class="state-toggle-btn" onclick="setState('error','Alerting')" title="Set alerting state">
+                    <span class="state-btn-led"></span>
+                    <span class="state-btn-text">Alert</span>
+                </button>
+            </div>
+
+            <!-- Subpanel 2: Primary Office Navigation Deck -->
+            <div id="control-nav-deck" class="control-subpanel">
+                <button id="btn-open-drawer" class="office-deck-btn btn-decor" onclick="toggleAssetDrawer()">
+                    <span class="deck-btn-icon">✨</span>
+                    <span class="deck-btn-label">Decorate Room</span>
+                </button>
+                <div class="deck-btn-grid">
+                    <button id="btn-open-tasks" class="office-deck-btn btn-task-board" onclick="toggleTaskBoard(true)">
+                        <span class="deck-btn-icon">📋</span>
+                        <span class="deck-btn-label">Task Board</span>
+                        <span id="control-task-count" class="deck-badge">0</span>
+                    </button>
+                    <button id="btn-open-meeting" class="office-deck-btn btn-meeting" onclick="openMeetingView()">
+                        <span class="deck-btn-icon">🎙️</span>
+                        <span class="deck-btn-label">Team Meeting</span>
+                    </button>
+                    <button id="btn-open-activity" class="office-deck-btn btn-activity" onclick="openActivityMonitorView()">
+                        <span class="deck-btn-icon">📊</span>
+                        <span class="deck-btn-label">Activity Monitor</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -1356,6 +1518,17 @@
 
     <script src="vendor/phaser-3.80.1.min.js?v=20260323_023357"></script>
     <script>
+        // HTML entity escape helper for task deliverables, code, and user text
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         // UI language handler
         let uiLang = localStorage.getItem('uiLang') || 'en';
         const I18N = {
@@ -4881,6 +5054,12 @@ function toggleBrokerPanel() {
                     const tasksData = await tasksRes.json();
                     const list = document.getElementById('task-board-tasks-list');
                     if (list && tasksData.tasks) {
+                        const countEl = document.getElementById('control-task-count');
+                        if (countEl) {
+                            const activeCount = tasksData.tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'PENDING').length;
+                            countEl.textContent = activeCount;
+                            countEl.style.display = activeCount > 0 ? 'inline-block' : 'none';
+                        }
                         if (tasksData.tasks.length === 0) {
                             list.innerHTML = '<div style="color:#64748b; font-size:12px; text-align:center; padding:12px;">No tasks yet. Assign a new task above.</div>';
                         } else {
@@ -4893,22 +5072,22 @@ function toggleBrokerPanel() {
 
                                 const stepsHtml = t.steps && t.steps.length > 0
                                     ? `<div style="margin-top:6px; padding-top:6px; border-top:1px dashed #334155; font-size:11px; color:#cbd5e1;">
-                                         ${t.steps.map(s => `<div>• <b>${s.tool || 'Step'}:</b> ${s.description} ${s.toolResult ? `<span style="color:#94a3b8;">(${s.toolResult.slice(0, 80)}...)</span>` : ''}</div>`).join('')}
+                                         ${t.steps.map(s => `<div>• <b>${escapeHtml(s.tool || 'Step')}:</b> ${escapeHtml(s.description)} ${s.toolResult ? `<span style="color:#94a3b8;">(${escapeHtml(s.toolResult.slice(0, 80))}...)</span>` : ''}</div>`).join('')}
                                        </div>`
                                     : '';
 
                                 const resultHtml = t.result
-                                    ? `<div style="margin-top:8px; padding:8px; background:#020617; border-left:3px solid #22c55e; border-radius:4px; font-size:12px; color:#e2e8f0; white-space:pre-wrap;"><b>Deliverable:</b>\n${t.result}</div>`
+                                    ? `<div style="margin-top:8px; padding:8px; background:#020617; border-left:3px solid #22c55e; border-radius:4px; font-size:12px; color:#e2e8f0; white-space:pre-wrap;"><b>Deliverable:</b>\n${escapeHtml(t.result)}</div>`
                                     : '';
 
                                 return `
                                     <div style="background:#1e293b; border:1px solid #334155; border-radius:6px; padding:12px;">
                                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                             <div>
-                                                <div style="font-size:14px; font-weight:bold; color:#f8fafc;">${t.title}</div>
-                                                <div style="font-size:12px; color:#94a3b8; margin-top:2px;">${t.description}</div>
+                                                <div style="font-size:14px; font-weight:bold; color:#f8fafc;">${escapeHtml(t.title)}</div>
+                                                <div style="font-size:12px; color:#94a3b8; margin-top:2px;">${escapeHtml(t.description)}</div>
                                             </div>
-                                            <span style="font-size:11px; padding:2px 8px; border-radius:10px; background:${badgeColor}22; color:${badgeColor}; border:1px solid ${badgeColor}; font-weight:bold;">${t.status}</span>
+                                            <span style="font-size:11px; padding:2px 8px; border-radius:10px; background:${badgeColor}22; color:${badgeColor}; border:1px solid ${badgeColor}; font-weight:bold;">${escapeHtml(t.status)}</span>
                                         </div>
                                         ${stepsHtml}
                                         ${resultHtml}

@@ -351,7 +351,12 @@ export class AntigravityBridge {
     }
 
     if (ws.activeTaskId) {
-      throw new Error(`Workspace '${ws.name}' is already busy with task ${ws.activeTaskId}`);
+      const activeTask = this.taskManager.getTask(ws.activeTaskId);
+      if (!activeTask || ["INTERRUPTED", "COMPLETED", "FAILED", "CANCELLED"].includes(activeTask.status)) {
+        this.workspaces.setActiveTask(opts.workspaceId, null);
+      } else {
+        throw new Error(`Workspace '${ws.name}' is already busy with task ${ws.activeTaskId}`);
+      }
     }
 
     const assignedAgentId = opts.assignedOfficeAgentId || "agent_writer";
@@ -805,6 +810,10 @@ ${opts.forbiddenChanges.map((f) => `- ${f}`).join("\n")}
   }
 
   private handleTaskUpdate(task: AntigravityTask): void {
+    if (["COMPLETED", "FAILED", "INTERRUPTED", "CONNECTION_UNAVAILABLE", "CANCELLED"].includes(task.status)) {
+      this.workspaces.setActiveTask(task.workspaceId, null);
+    }
+
     const agentId = task.assignedOfficeAgentId;
     if (!agentId || !this.deps.officeState.agents[agentId]) return;
 

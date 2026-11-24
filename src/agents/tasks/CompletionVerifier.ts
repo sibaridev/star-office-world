@@ -69,6 +69,15 @@ export class CompletionVerifier {
 
     const completedToolExecutions = provenance.filter((p) => p.status === "COMPLETED");
 
+    // Verify completed write or edit operations by reading files back from disk
+    const modificationExecutions = completedToolExecutions.filter(
+      (p) => p.tool === "workspace_write_file" || p.tool === "workspace_edit_file"
+    );
+
+    const antigravityDelegations = completedToolExecutions.filter(
+      (p) => p.tool === "delegate_to_antigravity"
+    );
+
     // 3. Required Tools Enforcement
     if (task.requiredTools && task.requiredTools.length > 0) {
       const executedTools = new Set(completedToolExecutions.map((p) => p.tool));
@@ -100,19 +109,11 @@ export class CompletionVerifier {
 
     // 5. File Creation / Modification Task Integrity Enforcement with Read-Back Verification
     const isModificationTask =
-      /\b(?:create|write|edit|modify|update|add|append|delete|refactor|build|modernize|polish|enhance|redesign|revamp|fix|patch|implement|style)\b/i.test(combinedText) &&
-      /\b(?:file|document|script|code|project|test\.md|hello\.txt|readme|component|html|css|js|ts|ui|bar|view)\b/i.test(combinedText);
+      antigravityDelegations.length > 0 ||
+      (/\b(?:create|write|edit|modify|update|add|append|delete|refactor|build|modernize|polish|enhance|redesign|revamp|fix|patch|implement|style)\b/i.test(combinedText) &&
+        /\b(?:file|document|script|code|project|test\.md|hello\.txt|readme|component|html|css|js|ts|ui|bar|view|module|feature)\b/i.test(combinedText));
 
     const verifiedEvidence: TaskExecutionEvidence[] = [];
-
-    // Verify completed write or edit operations by reading files back from disk
-    const modificationExecutions = completedToolExecutions.filter(
-      (p) => p.tool === "workspace_write_file" || p.tool === "workspace_edit_file"
-    );
-
-    const antigravityDelegations = completedToolExecutions.filter(
-      (p) => p.tool === "delegate_to_antigravity"
-    );
 
     // Group modifications by resolved file path so we verify the final/latest modification state
     const latestModificationsByFile = new Map<string, { resolvedPath: string; modExec: ToolExecutionProvenance }>();

@@ -34,7 +34,7 @@ test("getPublicState deep copies nested state", () => {
 
   assert.equal(state.agents["agent-1"].detail, "Waiting");
   assert.deepEqual(state.rooms.breakroom, ["agent-1"]);
-  assert.equal(state.background.current, "office_bg_small.webp");
+  assert.equal(state.background.current, "office_bg.webp");
   assert.equal(state.todayMemos[0].content, "Shipped the patch");
   assert.equal(state.yesterdayMemo.entries[0].content, "Reviewed the queue");
   assert.equal(state.officeConfig.name, "Deep Copy Office");

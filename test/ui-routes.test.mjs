@@ -124,7 +124,7 @@ test("GET /status returns idle owner payload when no agent is marked main", asyn
       },
       rooms: { breakroom: [], writing: ["guest-1"], error: [] },
       background: {
-        current: "office_bg_small.webp",
+        current: "office_bg.webp",
         updatedAt: 1_717_171_717_000,
         updatedBy: null,
       },
@@ -199,7 +199,7 @@ test("GET /status preserves owner payload when a main agent exists", async (t) =
       },
       rooms: { breakroom: [], writing: ["guest-1"], error: [] },
       background: {
-        current: "office_bg_small.webp",
+        current: "office_bg.webp",
         updatedAt: mainLastSeenAt,
         updatedBy: null,
       },

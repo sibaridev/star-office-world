@@ -268,15 +268,15 @@ export function registerUIRoutes(
     const bg = updateBackground
       ? updateBackground(backgroundUrl, "admin")
       : (() => {
-          const st = getState();
-          st.background = {
-            current: backgroundUrl,
-            updatedAt: Date.now(),
-            updatedBy: "admin",
-          };
-          st.lastUpdated = Date.now();
-          return st.background;
-        })();
+        const st = getState();
+        st.background = {
+          current: backgroundUrl,
+          updatedAt: Date.now(),
+          updatedBy: "admin",
+        };
+        st.lastUpdated = Date.now();
+        return st.background;
+      })();
     sse.broadcast("background", { url: backgroundUrl });
     return { ok: true, background: bg };
   });
@@ -305,12 +305,12 @@ export function registerUIRoutes(
       task.progress = 50;
       try {
         const presetOptions = [
-          "office_bg_small.webp",
+          "office_bg.webp",
           "cyberpunk_desk_bg.png",
           "night_office_bg.png",
           "coffee_lounge_bg.png",
         ];
-        const selected = presetOptions[Math.floor(Math.random() * presetOptions.length)] || "office_bg_small.webp";
+        const selected = presetOptions[Math.floor(Math.random() * presetOptions.length)] || "office_bg.webp";
         const generatedUrl = `/static/${selected}`;
 
         task.status = "completed";
@@ -362,19 +362,19 @@ export function registerUIRoutes(
     const cfg = updateConfig
       ? updateConfig(body as any)
       : (() => {
-          const st = getState();
-          if (body["name"] && typeof body["name"] === "string") {
-            st.officeConfig.name = body["name"];
-          }
-          if (body["language"] && ["cn", "en", "jp"].includes(String(body["language"]))) {
-            st.officeConfig.language = body["language"] as "cn" | "en" | "jp";
-          }
-          if (typeof body["maxAgents"] === "number") {
-            st.officeConfig.maxAgents = body["maxAgents"];
-          }
-          st.lastUpdated = Date.now();
-          return st.officeConfig;
-        })();
+        const st = getState();
+        if (body["name"] && typeof body["name"] === "string") {
+          st.officeConfig.name = body["name"];
+        }
+        if (body["language"] && ["cn", "en", "jp"].includes(String(body["language"]))) {
+          st.officeConfig.language = body["language"] as "cn" | "en" | "jp";
+        }
+        if (typeof body["maxAgents"] === "number") {
+          st.officeConfig.maxAgents = body["maxAgents"];
+        }
+        st.lastUpdated = Date.now();
+        return st.officeConfig;
+      })();
     sse.broadcast("state", getState());
     return { ok: true, config: cfg };
   });

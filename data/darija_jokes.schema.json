@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Moroccan Darija Jokes Dataset Schema",
+  "description": "JSON Schema specification for authentic Moroccan Darija jokes dataset",
+  "type": "array",
+  "items": {
+    "$ref": "#/definitions/DarijaJoke"
+  },
+  "definitions": {
+    "DarijaJoke": {
+      "type": "object",
+      "required": [
+        "id",
+        "darija_text",
+        "transliteration",
+        "english_translation",
+        "category"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^joke-[a-z0-9_-]+$",
+          "description": "Unique identifier for the Moroccan Darija joke"
+        },
+        "darija_text": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Authentic Moroccan Darija joke text in Arabic script"
+        },
+        "transliteration": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Phonetic transliteration in Latin script (Arabizi/Darija romanization)"
+        },
+        "english_translation": {
+          "type": "string",
+          "minLength": 5,
+          "description": "English translation conveying the punchline and cultural nuance"
+        },
+        "category": {
+          "type": "string",
+          "minLength": 2,
+          "description": "Thematic category (e.g. daily_life, school, medical, transport, witty, cafe, workplace)"
+        }
+      }
+    }
+  }
+}

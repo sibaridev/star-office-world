@@ -71,7 +71,7 @@ export function createInitialState(config: StarOfficeConfig): OfficeWorldState {
     agents: {},
     rooms: { breakroom: [], writing: [], error: [] },
     background: {
-      current: "office_bg_small.webp",
+      current: "office_bg.webp",
       updatedAt: Date.now(),
       updatedBy: null,
     },
@@ -238,9 +238,9 @@ export function getPublicState(state: OfficeWorldState): OfficeWorldState {
     todayMemos: state.todayMemos.map((entry) => ({ ...entry })),
     yesterdayMemo: state.yesterdayMemo
       ? {
-          ...state.yesterdayMemo,
-          entries: state.yesterdayMemo.entries.map((entry) => ({ ...entry })),
-        }
+        ...state.yesterdayMemo,
+        entries: state.yesterdayMemo.entries.map((entry) => ({ ...entry })),
+      }
       : null,
     officeConfig: { ...state.officeConfig },
   };

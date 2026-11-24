@@ -72,7 +72,7 @@ export class AgentTestPlayground {
         ? this.toolRegistry.getToolDeclarations(toolsAvailable)
         : "No tools available.";
 
-    const systemInstruction = `[STAR OFFICE WORLD AGENT TEST PLAYGROUND]
+    const systemInstruction = `[TEST PLAYGROUND SANDBOX ENVIRONMENT] [STAR OFFICE WORLD AGENT TEST PLAYGROUND]
 ${effectiveConfig.systemPrompt}
 
 You are ${effectiveConfig.name}, role: ${effectiveConfig.role} in Star Office World.

@@ -110,6 +110,10 @@ export class CompletionVerifier {
       (p) => p.tool === "workspace_write_file" || p.tool === "workspace_edit_file"
     );
 
+    const antigravityDelegations = completedToolExecutions.filter(
+      (p) => p.tool === "delegate_to_antigravity"
+    );
+
     // Group modifications by resolved file path so we verify the final/latest modification state
     const latestModificationsByFile = new Map<string, { resolvedPath: string; modExec: ToolExecutionProvenance }>();
     for (const modExec of modificationExecutions) {
@@ -173,6 +177,27 @@ export class CompletionVerifier {
       }
     }
 
+    // Verify Antigravity delegations - ensure real execution deliverable is verified
+    for (const agExec of antigravityDelegations) {
+      const outputText = agExec.output || "";
+      const isSuccess =
+        agExec.status === "COMPLETED" &&
+        (outputText.includes("Execution Succeeded") ||
+          (outputText.includes("Status: COMPLETED") && !outputText.includes("Status: QUEUED")) ||
+          (outputText.includes("Deliverable:") && !outputText.includes("Successfully submitted")));
+
+      if (isSuccess) {
+        verifiedEvidence.push({
+          tool: agExec.tool,
+          operation: "delegate_to_antigravity",
+          targetPath: task.workspacePath || "workspace",
+          result: `Antigravity delegated execution verified: ${outputText.slice(0, 120)}`,
+          verificationStatus: "VERIFIED",
+          verifiedAt: Date.now(),
+        });
+      }
+    }
+
     // Add command execution evidence if present
     const cmdExecutions = completedToolExecutions.filter((p) => p.tool === "workspace_execute_command");
     for (const cmdExec of cmdExecutions) {
@@ -186,21 +211,21 @@ export class CompletionVerifier {
       });
     }
 
-    if (isModificationTask && modificationExecutions.length === 0 && completedToolExecutions.length === 0) {
+    if (isModificationTask && modificationExecutions.length === 0 && antigravityDelegations.length === 0) {
       return {
         canComplete: false,
         status: "BLOCKED",
         blockReason:
-          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (workspace_write_file, workspace_edit_file) were successfully executed.",
+          "Execution Integrity Failure: Task requires creating or modifying project files, but 0 modification tools (workspace_write_file, workspace_edit_file) or Antigravity delegation tools (delegate_to_antigravity) were executed.",
       };
     }
 
-    if (isModificationTask && modificationExecutions.length > 0 && verifiedEvidence.length === 0) {
+    if (isModificationTask && verifiedEvidence.length === 0) {
       return {
         canComplete: false,
         status: "FAILED",
         blockReason:
-          "Execution Integrity Failure: File modification could not be verified on disk.",
+          "Execution Integrity Failure: File modification or Antigravity delegation could not be verified.",
       };
     }
 

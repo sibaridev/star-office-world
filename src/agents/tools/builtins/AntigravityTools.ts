@@ -47,11 +47,11 @@ export const checkAntigravityBridgeTool: ToolDefinition = {
         workspaces.length === 0
           ? "No workspaces registered."
           : workspaces
-              .map(
-                (w: WorkspaceConfig) =>
-                  `- [${w.workspaceId}] ${w.name}: ${w.path} (Git: ${w.gitInfo?.isRepo ? `Branch ${w.gitInfo.branch}` : "Non-git"}, Status: ${w.status})`
-              )
-              .join("\n"),
+            .map(
+              (w: WorkspaceConfig) =>
+                `- [${w.workspaceId}] ${w.name}: ${w.path} (Git: ${w.gitInfo?.isRepo ? `Branch ${w.gitInfo.branch}` : "Non-git"}, Status: ${w.status})`
+            )
+            .join("\n"),
         ``,
         `How Access Works: Star Office agents submit engineering prompts to Google Antigravity via the official 'agy.exe' CLI runtime. Antigravity executes tasks on authorized project repositories and streams real-time status, git diffs, and execution results back into Star Office World.`,
       ].join("\n");
@@ -96,6 +96,11 @@ export const delegateToAntigravityTool: ToolDefinition = {
       description: "Registered workspace ID (defaults to 'default_workspace')",
       required: false,
     },
+    waitForCompletion: {
+      type: "boolean",
+      description: "Whether to await Antigravity execution completion and return git diff & results directly (defaults to true)",
+      required: false,
+    },
   },
   async execute(args, context) {
     if (!context.antigravityBridge) {
@@ -110,6 +115,7 @@ export const delegateToAntigravityTool: ToolDefinition = {
     const objective = String(args["objective"] ?? "").trim();
     const reqRaw = String(args["requirements"] ?? "").trim();
     const workspaceId = String(args["workspaceId"] || "default_workspace");
+    const waitForCompletion = args["waitForCompletion"] !== false;
 
     if (!title || !objective || !reqRaw) {
       return {
@@ -130,11 +136,39 @@ export const delegateToAntigravityTool: ToolDefinition = {
         assignedOfficeAgentId: context.agentId,
       });
 
-      return {
-        success: true,
-        output: `Successfully submitted engineering task to Google Antigravity! Task ID: ${task.id} (Status: ${task.status}). Real execution has started via the Antigravity CLI on workspace '${workspaceId}'. Progress and git diff deliverables will be streamed live.`,
-        data: { taskId: task.id, workspaceId, status: task.status },
-      };
+      if (!waitForCompletion) {
+        return {
+          success: true,
+          output: `Successfully submitted engineering task to Google Antigravity! Task ID: ${task.id} (Status: ${task.status}). Real execution has started via the Antigravity CLI on workspace '${workspaceId}'. Progress and git diff deliverables will be streamed live.`,
+          data: { taskId: task.id, workspaceId, status: task.status },
+        };
+      }
+
+      // Wait for real Antigravity execution to complete
+      const completedTask = await context.antigravityBridge.waitForTask(task.id, 180000);
+
+      if (completedTask.status === "COMPLETED") {
+        const diff = completedTask.deliverables?.diff || "No git diff detected.";
+        const resultText = completedTask.deliverables?.result || "Antigravity completed changes.";
+        return {
+          success: true,
+          output: `=== Google Antigravity Execution Succeeded ===\nTask ID: ${completedTask.id}\nStatus: COMPLETED\nDeliverable: ${resultText}\n\n=== Git Diff / File Changes ===\n${diff}`,
+          data: {
+            taskId: completedTask.id,
+            workspaceId,
+            status: completedTask.status,
+            diff,
+            deliverables: completedTask.deliverables,
+          },
+        };
+      } else {
+        return {
+          success: false,
+          output: `Antigravity task ${completedTask.id} ended with status: ${completedTask.status}. ${completedTask.error || completedTask.progressMessage || ""}`,
+          error: completedTask.error || `Task ended with status ${completedTask.status}`,
+          data: { taskId: completedTask.id, status: completedTask.status },
+        };
+      }
     } catch (err: unknown) {
       return {
         success: false,

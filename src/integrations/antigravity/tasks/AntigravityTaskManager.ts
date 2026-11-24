@@ -121,6 +121,14 @@ export class AntigravityTaskManager {
     const task = this.tasks.get(taskId);
     if (!task) return null;
 
+    // Terminal states cannot be reverted back to active states
+    if (
+      (task.status === "COMPLETED" || task.status === "FAILED" || task.status === "CANCELLED") &&
+      status !== task.status
+    ) {
+      return task;
+    }
+
     task.status = status;
     if (message !== undefined) task.progressMessage = message;
     if (progress !== undefined) task.progress = progress;
@@ -222,10 +230,20 @@ export class AntigravityTaskManager {
     const task = this.tasks.get(taskId);
     if (!task) return null;
 
+    // Terminal states cannot be completed again or falsely overwritten
+    if (task.status === "COMPLETED" || task.status === "FAILED" || task.status === "CANCELLED") {
+      return null;
+    }
+
+    // Must have real execution deliverable: result must be a non-empty string
+    if (!opts || typeof opts.result !== "string" || !opts.result.trim()) {
+      return null;
+    }
+
     task.status = "COMPLETED";
     task.progress = 100;
     task.progressMessage = "Task successfully completed";
-    task.result = opts.result;
+    task.result = opts.result.trim();
     if (opts.diff) task.diff = opts.diff;
     if (opts.testResults) task.testResults = opts.testResults;
     task.completedAt = Date.now();
@@ -244,6 +262,10 @@ export class AntigravityTaskManager {
     const task = this.tasks.get(taskId);
     if (!task) return null;
 
+    if (task.status === "COMPLETED" || task.status === "FAILED" || task.status === "CANCELLED") {
+      return null;
+    }
+
     task.status = "FAILED";
     task.error = error;
     task.progressMessage = `Failed: ${error}`;
@@ -259,6 +281,10 @@ export class AntigravityTaskManager {
   public cancelTask(taskId: string, reason?: string): AntigravityTask | null {
     const task = this.tasks.get(taskId);
     if (!task) return null;
+
+    if (task.status === "COMPLETED" || task.status === "FAILED" || task.status === "CANCELLED") {
+      return null;
+    }
 
     task.status = "CANCELLED";
     task.error = reason || "Task cancelled by user or office agent";

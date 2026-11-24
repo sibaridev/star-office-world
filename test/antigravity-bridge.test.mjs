@@ -506,7 +506,10 @@ test("Antigravity Real Connection: Workspace Inspection and Non-Empty/Empty Veri
 
 test("Antigravity Real Connection: Strict Task Completion Semantics", async (t) => {
   const { bridge, workspaceA, sse } = setupTestEnv();
-  t.after(() => sse.destroy());
+  t.after(() => {
+    bridge.destroy();
+    sse.destroy();
+  });
 
   bridge.workspaces.registerWorkspace({
     workspaceId: "ws_semantics",
@@ -522,10 +525,24 @@ test("Antigravity Real Connection: Strict Task Completion Semantics", async (t) 
     assignedOfficeAgentId: "agent_writer",
   });
 
-  // Task must NOT be marked COMPLETED at creation
+  // 1. Task must NOT be marked COMPLETED at creation
   assert.notEqual(task.status, "COMPLETED");
 
-  // Attempting to complete task requires valid result
+  // 2. Attempting to complete task with empty string result must fail (cannot be completed falsely)
+  const falseCompletedEmpty = bridge.taskManager.completeTask(task.id, {
+    result: "",
+  });
+  assert.equal(falseCompletedEmpty, null);
+  assert.notEqual(bridge.taskManager.getTask(task.id)?.status, "COMPLETED");
+
+  // 3. Attempting to complete task with whitespace-only result must fail
+  const falseCompletedWhitespace = bridge.taskManager.completeTask(task.id, {
+    result: "   ",
+  });
+  assert.equal(falseCompletedWhitespace, null);
+  assert.notEqual(bridge.taskManager.getTask(task.id)?.status, "COMPLETED");
+
+  // 4. Attempting to complete task with valid deliverable succeeds
   const completed = bridge.taskManager.completeTask(task.id, {
     result: "Verified code output and changes implemented",
     diff: "diff --git a/file b/file",
@@ -538,6 +555,33 @@ test("Antigravity Real Connection: Strict Task Completion Semantics", async (t) 
   assert.ok(completed.result);
   assert.ok(completed.diff);
   assert.ok(completed.completedAt);
+
+  // 5. Subsequent attempt to complete already completed task must return null (terminal state protection)
+  const doubleCompleted = bridge.taskManager.completeTask(task.id, {
+    result: "Attempting duplicate completion",
+  });
+  assert.equal(doubleCompleted, null);
+
+  // 6. updateStatus cannot revert completed task back to running or active status
+  bridge.taskManager.updateStatus(task.id, "RUNNING", "Attempting reversion", 50);
+  assert.equal(bridge.taskManager.getTask(task.id)?.status, "COMPLETED");
+
+  // 7. Cancelled or Failed task cannot be completed falsely
+  const cancelTask = bridge.submitEngineeringTask({
+    workspaceId: "ws_semantics",
+    title: "Cancelled Task Test",
+    objective: "Test cancellation semantics",
+    requirements: ["Must stay cancelled"],
+    assignedOfficeAgentId: "agent_writer",
+  });
+  bridge.taskManager.cancelTask(cancelTask.id, "Test cancellation");
+  assert.equal(bridge.taskManager.getTask(cancelTask.id)?.status, "CANCELLED");
+
+  const falseCompleteCancelled = bridge.taskManager.completeTask(cancelTask.id, {
+    result: "Trying to complete cancelled task",
+  });
+  assert.equal(falseCompleteCancelled, null);
+  assert.equal(bridge.taskManager.getTask(cancelTask.id)?.status, "CANCELLED");
 });
 
 test("Antigravity Master Agent (Nova): Full Access and Antigravity Tool Suite", async (t) => {

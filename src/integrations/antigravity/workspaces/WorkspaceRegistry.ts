@@ -112,9 +112,10 @@ export class WorkspaceRegistry {
   public isAuthorizedPath(workspaceId: string, targetPath: string): boolean {
     if (workspaceId) {
       const ws = this.getWorkspace(workspaceId);
-      if (ws && this.checkPathWithinRoot(ws.path, targetPath)) {
-        return true;
+      if (ws) {
+        return this.checkPathWithinRoot(ws.path, targetPath);
       }
+      return false;
     }
     // Check if targetPath is within ANY authorized workspace
     return this.isPathInAnyAuthorizedWorkspace(targetPath);

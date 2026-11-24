@@ -171,7 +171,7 @@ export class AgentInstance {
           } else if (path.extname(extracted)) {
             extracted = path.dirname(extracted);
           }
-        } catch {}
+        } catch { }
 
         if (fs.existsSync(extracted)) {
           effectiveWorkspacePath = path.resolve(extracted);
@@ -191,8 +191,8 @@ export class AgentInstance {
         typeof this.antigravityBridge.workspaces.getWorkspace === "function"
           ? this.antigravityBridge.workspaces.getWorkspace(effectiveWorkspaceId)
           : typeof this.antigravityBridge.workspaces.get === "function"
-          ? this.antigravityBridge.workspaces.get(effectiveWorkspaceId)
-          : undefined;
+            ? this.antigravityBridge.workspaces.get(effectiveWorkspaceId)
+            : undefined;
       if (ws) {
         effectiveWorkspacePath = ws.path || (ws as any).rootPath;
       }
@@ -395,12 +395,15 @@ export class AgentInstance {
     } finally {
       this.isRunning = false;
       this.currentTask = null;
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.lifecycle.state !== "ERROR" && this.lifecycle.state !== "PAUSED") {
           this.lifecycle.transition("IDLE", "Ready for next task");
           this.emitStateChange("Ready at office desk");
         }
       }, 3000);
+      if (typeof timer.unref === "function") {
+        timer.unref();
+      }
     }
   }
 
@@ -441,15 +444,16 @@ To delegate a subtask (if you are the Coordinator):
 
 CRITICAL EXECUTION INTEGRITY RULES:
 - You MUST ALWAYS respond with a JSON decision block. Do NOT reply with conversational chat, apologies, or plain prose.
-- When asked to create, write, edit, or modify files in the project workspace, you MUST invoke 'workspace_write_file' with 'filePath' (relative to workspace root, e.g. 'test.md', 'src/types.ts') and 'content'. It directly writes and updates files on disk.
-- When asked about Antigravity access, connection status, repository analysis, or software engineering tasks: DO NOT guess, DO NOT assume tools are absent, and DO NOT instruct the user to run manual shell commands!
-- You have direct tools to inspect authorized workspaces:
+- For software development, coding, refactoring, modernizing UI, styling, or bugfixes across the repository: Invoke 'delegate_to_antigravity' with a clear title, objective, and requirements. Google Antigravity coding agents will autonomously execute the code modifications and tests using their specialized coding tools and tokens, returning verified git diff deliverables directly back to you.
+- When creating or updating files directly, invoke 'workspace_write_file' or 'workspace_edit_file'.
+- You have direct tools to inspect and modify authorized workspaces:
+  * 'delegate_to_antigravity' to dispatch software engineering tasks to Google Antigravity and await verified execution with git diff.
   * 'get_antigravity_workspace_git_status' to inspect real git status, active branch, and modified files.
   * 'list_antigravity_workspace_files' to inspect files in the authorized repository.
   * 'read_antigravity_workspace_file' to read file contents from the repository.
-  * 'workspace_write_file' to create or edit files in the authorized workspace.
+  * 'workspace_write_file' and 'workspace_edit_file' to create or edit files in the authorized workspace.
   * 'check_antigravity_bridge' to verify bridge status.
-- Never output excuses such as "I do not have access to..." or "Run these commands manually...". If a task requires evidence from a repository or workspace, invoke the appropriate tools to collect real data.
+- Never output excuses such as "I do not have access to..." or "Run these commands manually...". If a task requires evidence or changes in a repository or workspace, invoke the appropriate tools.
 
 To complete the task:
 \`\`\`json
@@ -491,17 +495,16 @@ Next Recommended Action: ${task.checkpoint.nextRecommendedAction || "Continue fr
       childTasks.length > 0
         ? `\nDELEGATED SUBTASK DELIVERABLES & OUTCOMES:
 ${childTasks
-  .map(
-    (c) =>
-      `* Subtask "${c.title}" (Assigned: ${c.assignedAgentId || "unassigned"}) -> Status: [${c.status}]
+          .map(
+            (c) =>
+              `* Subtask "${c.title}" (Assigned: ${c.assignedAgentId || "unassigned"}) -> Status: [${c.status}]
   Deliverable: ${c.result || "(in progress / no deliverable yet)"}
-  Executed Tools Provenance: ${
-    c.provenance && c.provenance.length > 0
-      ? c.provenance.map((p) => `${p.tool} (${p.status})`).join(", ")
-      : "(none)"
-  }`
-  )
-  .join("\n")}\n`
+  Executed Tools Provenance: ${c.provenance && c.provenance.length > 0
+                ? c.provenance.map((p) => `${p.tool} (${p.status})`).join(", ")
+                : "(none)"
+              }`
+          )
+          .join("\n")}\n`
         : "";
 
     return `TASK TO EXECUTE:
@@ -520,25 +523,65 @@ Analyze the task requirements, target workspace, delegated subtask deliverables,
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     const rawJson = jsonMatch ? jsonMatch[1] : text;
 
-    try {
-      const parsed = JSON.parse(rawJson!) as AgentActionDecision;
-      if (parsed && typeof parsed.action === "string") {
-        return parsed;
-      }
-    } catch {
-      // Fallback: look for direct JSON object
+    const tryParse = (str: string): AgentActionDecision | null => {
       try {
-        const start = text.indexOf("{");
-        const end = text.lastIndexOf("}");
-        if (start !== -1 && end > start) {
-          const parsed = JSON.parse(text.slice(start, end + 1)) as AgentActionDecision;
+        const parsed = JSON.parse(str) as AgentActionDecision;
+        if (parsed && typeof parsed.action === "string") {
+          return parsed;
+        }
+      } catch {
+        // Try repairing unescaped newlines inside JSON string literals
+        try {
+          let insideString = false;
+          let escaped = false;
+          let repaired = "";
+          for (let i = 0; i < str.length; i++) {
+            const ch = str[i];
+            if (ch === "\\" && insideString) {
+              escaped = !escaped;
+              repaired += ch;
+            } else if (ch === '"' && !escaped) {
+              insideString = !insideString;
+              repaired += ch;
+            } else if (insideString && (ch === "\n" || ch === "\r")) {
+              repaired += ch === "\n" ? "\\n" : "\\r";
+            } else {
+              escaped = false;
+              repaired += ch;
+            }
+          }
+          const parsed = JSON.parse(repaired) as AgentActionDecision;
           if (parsed && typeof parsed.action === "string") {
             return parsed;
           }
-        }
-      } catch {
-        // ignore
+        } catch { }
       }
+      return null;
+    };
+
+    let decision = tryParse(rawJson!);
+    if (!decision) {
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start !== -1 && end > start) {
+        decision = tryParse(text.slice(start, end + 1));
+      }
+    }
+
+    if (decision) {
+      return decision;
+    }
+
+    // Check if text intended to be a tool call but had formatting issues
+    const hasToolAction = /"action"\s*:\s*"tool"/i.test(text);
+    const toolNameMatch = text.match(/"tool"\s*:\s*"([^"]+)"/i);
+    if (hasToolAction && toolNameMatch) {
+      return {
+        action: "tool",
+        tool: toolNameMatch[1],
+        args: {},
+        thought: "Extracted tool call from intent",
+      };
     }
 
     return {

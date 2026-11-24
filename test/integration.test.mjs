@@ -26,6 +26,8 @@ const PORT = 19877;
 
 describe("Star Office World — Agent Integration", () => {
   before(async () => {
+    delete process.env.WORLD_NAME;
+    delete process.env.STAR_OFFICE_NAME;
     const fs = await import("node:fs");
     const os = await import("node:os");
     const path = await import("node:path");

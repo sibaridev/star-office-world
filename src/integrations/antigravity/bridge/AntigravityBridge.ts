@@ -107,7 +107,7 @@ export class AntigravityBridge {
       if (first && fs.existsSync(first)) {
         return first;
       }
-    } catch {}
+    } catch { }
 
     return null;
   }
@@ -129,7 +129,7 @@ export class AntigravityBridge {
             }
           }
         }
-      } catch {}
+      } catch { }
     }
     return list;
   }
@@ -181,26 +181,26 @@ export class AntigravityBridge {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "ignore"],
         }).trim();
-      } catch {}
+      } catch { }
     }
 
     // 1. Installation Detection
     const installation: CapabilityDiagnostic = agyPath
       ? {
-          name: "installationDetection",
-          status: "CONNECTED",
-          details: `Antigravity CLI verified at: ${agyPath} (v${version || "unknown"})`,
-          detectedPath: agyPath,
-          version,
-        }
+        name: "installationDetection",
+        status: "CONNECTED",
+        details: `Antigravity CLI verified at: ${agyPath} (v${version || "unknown"})`,
+        detectedPath: agyPath,
+        version,
+      }
       : idePath
-      ? {
+        ? {
           name: "installationDetection",
           status: "CONNECTED",
           details: `Antigravity IDE found at: ${idePath}, but CLI (agy.exe) not found`,
           detectedPath: idePath,
         }
-      : {
+        : {
           name: "installationDetection",
           status: "NOT_INSTALLED",
           details: "Neither Google Antigravity CLI (agy.exe) nor Antigravity IDE was detected on this host.",
@@ -231,8 +231,8 @@ export class AntigravityBridge {
         running.length > 0
           ? `${running.length} Antigravity process(es) running (PIDs: ${running.map((p) => p.pid).join(", ")}).`
           : agyPath
-          ? "No active background daemon running, but CLI binary is immediately executable."
-          : "No Antigravity processes found.",
+            ? "No active background daemon running, but CLI binary is immediately executable."
+            : "No Antigravity processes found.",
     };
 
     // 4. Authentication Readiness
@@ -396,7 +396,7 @@ export class AntigravityBridge {
     );
     try {
       this.deps.memoStore.append(memoEntry);
-    } catch {}
+    } catch { }
     this.deps.sse.broadcast("memo", memoEntry);
 
     // Launch real execution asynchronously
@@ -411,6 +411,15 @@ export class AntigravityBridge {
    * Asynchronously executes a task against the real Antigravity CLI (agy.exe).
    */
   private async launchTaskExecution(taskId: string): Promise<void> {
+    // In test runners or when explicitly skipped, do not spawn background interactive agy CLI processes
+    if (
+      process.env.NODE_TEST_CONTEXT ||
+      process.env.STAR_OFFICE_SKIP_REAL_AGY === "true" ||
+      process.env.NODE_ENV === "test"
+    ) {
+      return;
+    }
+
     const task = this.taskManager.getTask(taskId);
     if (!task) return;
 
@@ -438,7 +447,17 @@ export class AntigravityBridge {
       10
     );
 
-    const args = ["--output-format", "stream-json", "--add-dir", ws.path, "--print", task.engineeringPrompt];
+    const args = [
+      "--dangerously-skip-permissions",
+      "--mode",
+      "accept-edits",
+      "--output-format",
+      "stream-json",
+      "--add-dir",
+      ws.path,
+      "--print",
+      task.engineeringPrompt,
+    ];
 
     try {
       const cleanEnv = { ...process.env };
@@ -533,7 +552,11 @@ export class AntigravityBridge {
         this.workspaces.setActiveTask(task.workspaceId, null);
 
         const currentTask = this.taskManager.getTask(taskId);
-        if (currentTask?.status === "CANCELLED" || currentTask?.status === "COMPLETED") {
+        if (
+          currentTask?.status === "CANCELLED" ||
+          currentTask?.status === "COMPLETED" ||
+          currentTask?.status === "FAILED"
+        ) {
           return;
         }
 
@@ -573,7 +596,7 @@ export class AntigravityBridge {
         } else {
           proc.kill("SIGKILL");
         }
-      } catch {}
+      } catch { }
       this.activeProcesses.delete(taskId);
     }
     const task = this.taskManager.getTask(taskId);
@@ -581,6 +604,47 @@ export class AntigravityBridge {
       this.workspaces.setActiveTask(task.workspaceId, null);
     }
     return this.taskManager.cancelTask(taskId, reason);
+  }
+
+  /**
+   * Polls or waits for an Antigravity task to finish execution or reach a terminal state.
+   */
+  public async waitForTask(
+    taskId: string,
+    timeoutMs = 180000,
+    onProgress?: (task: AntigravityTask) => void
+  ): Promise<AntigravityTask> {
+    const startTime = Date.now();
+    return new Promise((resolve, reject) => {
+      const interval = setInterval(() => {
+        const task = this.taskManager.getTask(taskId);
+        if (!task) {
+          clearInterval(interval);
+          return reject(new Error(`Task ${taskId} not found`));
+        }
+        if (onProgress) {
+          onProgress(task);
+        }
+        if (
+          task.status === "COMPLETED" ||
+          task.status === "FAILED" ||
+          task.status === "CANCELLED" ||
+          task.status === "INTERRUPTED" ||
+          task.status === "CONNECTION_UNAVAILABLE"
+        ) {
+          clearInterval(interval);
+          return resolve(task);
+        }
+        if (Date.now() - startTime > timeoutMs) {
+          clearInterval(interval);
+          return reject(
+            new Error(
+              `Timed out waiting for Antigravity task ${taskId} after ${Math.round(timeoutMs / 1000)}s`
+            )
+          );
+        }
+      }, 1000);
+    });
   }
 
   /**
@@ -594,7 +658,7 @@ export class AntigravityBridge {
         } else {
           proc.kill("SIGKILL");
         }
-      } catch {}
+      } catch { }
     }
     this.activeProcesses.clear();
   }
@@ -790,7 +854,7 @@ ${opts.forbiddenChanges.map((f) => `- ${f}`).join("\n")}
         );
         try {
           this.deps.memoStore.append(memo);
-        } catch {}
+        } catch { }
         this.deps.sse.broadcast("memo", memo);
         break;
       case "FAILED":

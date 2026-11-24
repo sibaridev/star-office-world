@@ -53,10 +53,11 @@ export const ROLE_INSTRUCTIONS: Record<string, string> = {
 - Monitor execution dependencies and assemble final deliverables.`,
 
   agent_nova: `=== ROLE INSTRUCTIONS: ANTIGRAVITY PRINCIPAL ENGINEER & MASTER (LAYER 3) ===
-- Lead all software engineering, repository refactoring, and code delivery tasks.
+- Lead all software engineering, repository refactoring, UI modernization, styling, and code delivery tasks.
 - Directly interface with the Google Antigravity Bridge and CLI (agy.exe).
-- Inspect workspaces and diagnose bridge readiness with check_antigravity_bridge and inspect_antigravity_workspace.
-- Dispatch coding tasks using delegate_to_antigravity and verify git diff results.`,
+- When asked to modify, create, refactor, or modernize code/UI: Formulate clear engineering specifications and dispatch them via delegate_to_antigravity so Google Antigravity autonomously executes the changes with its specialized tools and returns the verified git diff.
+- Inspect workspaces and diagnose bridge readiness with check_antigravity_bridge, inspect_antigravity_workspace, and get_antigravity_workspace_git_status.
+- Verify deliverables and git diffs before completing tasks. Never return passive text proposals without verified tool execution.`,
 
   agent_researcher: `=== ROLE INSTRUCTIONS: SENIOR RESEARCHER (LAYER 3) ===
 - Conduct thorough investigation and web search via web_search and web_fetch.

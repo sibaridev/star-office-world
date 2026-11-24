@@ -759,18 +759,28 @@
             background-position: 50% 0;
             padding-top: 4px;
             padding-bottom: 2px;
-            filter: brightness(1.18);
-            color: #fff !important;
+            filter: brightness(1.05);
+            color: #0f172a !important;
         }
         .state-toggle-btn.is-active {
-            filter: brightness(1.25) drop-shadow(0 0 6px rgba(244,196,48,0.7));
+            filter: brightness(1.06) drop-shadow(0 0 6px rgba(244,196,48,0.7));
+            color: #0f172a !important;
+        }
+        #btn-state-writing.is-active {
+            filter: brightness(1.06) drop-shadow(0 0 6px rgba(16,185,129,0.7));
+        }
+        #btn-state-syncing.is-active {
+            filter: brightness(1.06) drop-shadow(0 0 6px rgba(56,189,248,0.7));
+        }
+        #btn-state-error.is-active {
+            filter: brightness(1.06) drop-shadow(0 0 6px rgba(239,68,68,0.7));
         }
         .state-toggle-btn .state-btn-led {
             width: 5px;
             height: 5px;
             border-radius: 50%;
             background: #475569;
-            margin-bottom: 2px;
+            margin-bottom: 3px;
             transition: background 0.2s, box-shadow 0.2s;
         }
         .state-toggle-btn.is-active .state-btn-led {
@@ -788,6 +798,16 @@
         #btn-state-writing.is-active .state-btn-led {
             background: #10b981;
             box-shadow: 0 0 8px #10b981;
+        }
+        .state-toggle-btn .state-btn-text {
+            display: inline-block;
+            font-size: 12px;
+            line-height: 1;
+            letter-spacing: 0.5px;
+        }
+        .state-toggle-btn.is-active .state-btn-text {
+            color: #0f172a !important;
+            font-weight: bold;
         }
 
         /* Deck Navigation Buttons */
@@ -824,9 +844,11 @@
             border: none !important;
             border-radius: 0 !important;
             height: 48px;
-            color: #5e6366 !important;
+            color: #451a03 !important;
             font-size: 14px !important;
+            font-weight: bold !important;
             padding: 0 10px 8px !important;
+            text-shadow: 0 1px 0 rgba(255, 230, 150, 0.6);
         }
         .office-deck-btn.btn-decor:hover {
             filter: brightness(1.08);
@@ -1585,11 +1607,21 @@
             const setPh = (id, key) => { const el = document.getElementById(id); if (el) el.placeholder = t(key); };
 
             setText('control-bar-title', 'controlTitle');
-            setText('btn-state-idle', 'btnIdle');
-            setText('btn-state-writing', 'btnWork');
-            setText('btn-state-syncing', 'btnSync');
-            setText('btn-state-error', 'btnError');
-            setText('btn-open-drawer', 'btnDecor');
+            const setBtnLabel = (id, key) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                const textEl = btn.querySelector('.state-btn-text, .deck-btn-label');
+                if (textEl) {
+                    textEl.textContent = t(key);
+                } else {
+                    btn.textContent = t(key);
+                }
+            };
+            setBtnLabel('btn-state-idle', 'btnIdle');
+            setBtnLabel('btn-state-writing', 'btnWork');
+            setBtnLabel('btn-state-syncing', 'btnSync');
+            setBtnLabel('btn-state-error', 'btnError');
+            setBtnLabel('btn-open-drawer', 'btnDecor');
             const langButtons = [
                 { id: 'lang-btn-en', lang: 'en' },
                 { id: 'lang-btn-jp', lang: 'ja' },
@@ -1924,8 +1956,34 @@
         let lastSeenGuestIds = new Set(); // Track seen guests for welcome bubble
         let guestWelcomeInitialized = false;
 
+        function updateStarStatusControlBar(state, detail) {
+            const map = {
+                idle: { btn: 'btn-state-idle', label: 'STANDBY', color: '#38bdf8' },
+                writing: { btn: 'btn-state-writing', label: 'WORKING', color: '#10b981' },
+                syncing: { btn: 'btn-state-syncing', label: 'SYNCING', color: '#38bdf8' },
+                error: { btn: 'btn-state-error', label: 'ALERTING', color: '#ef4444' }
+            };
+            Object.values(map).forEach(item => {
+                const el = document.getElementById(item.btn);
+                if (el) el.classList.remove('is-active');
+            });
+            const current = map[state] || map.idle;
+            const activeEl = document.getElementById(current.btn);
+            if (activeEl) activeEl.classList.add('is-active');
+
+            const labelEl = document.getElementById('star-current-state-label');
+            if (labelEl) labelEl.textContent = current.label;
+
+            const dotEl = document.querySelector('#star-live-indicator .pulse-dot');
+            if (dotEl) {
+                dotEl.style.background = current.color;
+                dotEl.style.boxShadow = '0 0 6px ' + current.color;
+            }
+        }
+
         // State control functions (testing)
         function setState(state, detail) {
+            updateStarStatusControlBar(state, detail);
             fetch('set_state', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -4740,6 +4798,7 @@ function toggleBrokerPanel() {
                             }
                         }
                         const nextState = normalizeState(data.state);
+                        updateStarStatusControlBar(nextState, data.detail || '');
                         const stateInfo = STATES[nextState] || STATES.idle;
                         // If we're mid-transition, don't restart the path every poll
                         const changed = (pendingDesiredState === null) && (nextState !== currentState);

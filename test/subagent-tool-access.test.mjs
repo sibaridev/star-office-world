@@ -419,3 +419,74 @@ test("8. Incident Reproduction & Resolution: Delegated subtask prevents false co
 
   fs.rmSync(testDir, { recursive: true, force: true });
 });
+
+test("9. Anti-False Completion blocks Antigravity delegation when only dispatched without real execution deliverable", () => {
+  const task = {
+    id: "task_ag_dispatch_only",
+    title: "Implement new feature with Antigravity",
+    description: "Create and implement module",
+    status: "IN_PROGRESS",
+    steps: [],
+    provenance: [
+      {
+        executionId: "exec_ag_disp",
+        taskId: "task_ag_dispatch_only",
+        agentId: "agent_nova",
+        tool: "delegate_to_antigravity",
+        inputParameters: { title: "Implement feature", waitForCompletion: false },
+        requestedAt: Date.now() - 200,
+        authorizedAt: Date.now() - 150,
+        startedAt: Date.now() - 100,
+        completedAt: Date.now() - 50,
+        status: "COMPLETED",
+        output: "Successfully submitted engineering task to Google Antigravity! Task ID: ag_task_123 (Status: QUEUED). Real execution has started via the Antigravity CLI on workspace 'default_workspace'.",
+        workspaceId: "default_workspace",
+      },
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const claimResult = "Antigravity task has been queued and dispatched.";
+  const result = CompletionVerifier.verifyCompletion(task, claimResult, task.provenance);
+
+  assert.equal(result.canComplete, false);
+  assert.equal(result.status, "FAILED");
+  assert.match(result.blockReason || "", /File modification or Antigravity delegation could not be verified/);
+});
+
+test("10. Anti-False Completion approves Antigravity delegation when completed execution deliverable is present", () => {
+  const task = {
+    id: "task_ag_delivered",
+    title: "Implement new feature with Antigravity",
+    description: "Create and implement module",
+    status: "IN_PROGRESS",
+    steps: [],
+    provenance: [
+      {
+        executionId: "exec_ag_done",
+        taskId: "task_ag_delivered",
+        agentId: "agent_nova",
+        tool: "delegate_to_antigravity",
+        inputParameters: { title: "Implement feature", waitForCompletion: true },
+        requestedAt: Date.now() - 200,
+        authorizedAt: Date.now() - 150,
+        startedAt: Date.now() - 100,
+        completedAt: Date.now() - 50,
+        status: "COMPLETED",
+        output: "=== Google Antigravity Execution Succeeded ===\nTask ID: ag_task_456\nStatus: COMPLETED\nDeliverable: Implemented new authentication token validator.\n\n=== Git Diff / File Changes ===\ndiff --git a/auth.ts b/auth.ts",
+        workspaceId: "default_workspace",
+      },
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const claimResult = "Antigravity finished implementation and verified tests.";
+  const result = CompletionVerifier.verifyCompletion(task, claimResult, task.provenance);
+
+  assert.equal(result.canComplete, true);
+  assert.equal(result.status, "COMPLETED");
+  assert.ok(result.verifiedEvidence && result.verifiedEvidence.length > 0);
+  assert.equal(result.verifiedEvidence[0].operation, "delegate_to_antigravity");
+});

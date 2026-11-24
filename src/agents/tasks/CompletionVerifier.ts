@@ -57,13 +57,13 @@ export class CompletionVerifier {
     }
 
     // 2. Failed Tool Executions Gate
-    const failedExecutions = provenance.filter((p) => p.status === "FAILED");
-    if (failedExecutions.length > 0) {
-      const lastFailed = failedExecutions[failedExecutions.length - 1];
+    // If the latest tool execution failed, block completion until rectified
+    const lastExecution = provenance.length > 0 ? provenance[provenance.length - 1] : null;
+    if (lastExecution && lastExecution.status === "FAILED") {
       return {
         canComplete: false,
         status: "FAILED",
-        blockReason: `Execution Failure: Tool '${lastFailed.tool}' failed with error: ${lastFailed.error || "Unknown failure"}`,
+        blockReason: `Execution Failure: Tool '${lastExecution.tool}' failed with error: ${lastExecution.error || "Unknown failure"}`,
       };
     }
 

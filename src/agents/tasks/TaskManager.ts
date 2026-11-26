@@ -29,15 +29,24 @@ export class TaskManager {
 
   private loadPersistedTasks(): void {
     const list = this.persistence.listTasks();
+    const inFlightStatuses: TaskStatus[] = [
+      "IN_PROGRESS",
+      "RUNNING",
+      "ASSIGNED",
+      "WAITING_FOR_TOOL",
+      "WAITING_FOR_APPROVAL",
+    ];
     for (const task of list) {
       task.steps = task.steps || [];
       task.provenance = task.provenance || [];
-      // If a task was left IN_PROGRESS or RUNNING when the server died, mark it INTERRUPTED
-      if (task.status === "IN_PROGRESS" || task.status === "RUNNING") {
+      task.evidence = task.evidence || [];
+      // If a task was left in-flight when the server died, mark it INTERRUPTED
+      if (inFlightStatuses.includes(task.status)) {
         task.status = "INTERRUPTED";
         task.error = "Application restarted while task was in progress";
         task.updatedAt = Date.now();
         this.persistence.saveTask(task);
+        this.persistence.recordRunLog(task.id, "Task marked INTERRUPTED due to server restart.");
       }
       this.tasks.set(task.id, task);
     }
@@ -192,12 +201,28 @@ export class TaskManager {
     const task = this.tasks.get(taskId);
     if (!task) return null;
 
-    // Aggregate provenance from task and any subtasks
+    if (task.status === "COMPLETED") {
+      return task;
+    }
+    if (task.status === "CANCELLED") {
+      this.persistence.recordRunLog(taskId, "Cannot complete task: task was cancelled.");
+      return task;
+    }
+
+    // Aggregate provenance from task and any subtasks (deduplicated by executionId to preserve provenance)
     const childTasks = this.listTasks({ parentTaskId: taskId });
-    const effectiveProvenance = [
-      ...(task.provenance || []),
-      ...childTasks.flatMap((c: OfficeTask) => c.provenance || []),
-    ];
+    const seenExecutionIds = new Set<string>();
+    const effectiveProvenance: ToolExecutionProvenance[] = [];
+    for (const p of [...(task.provenance || []), ...childTasks.flatMap((c: OfficeTask) => c.provenance || [])]) {
+      if (p.executionId) {
+        if (!seenExecutionIds.has(p.executionId)) {
+          seenExecutionIds.add(p.executionId);
+          effectiveProvenance.push(p);
+        }
+      } else {
+        effectiveProvenance.push(p);
+      }
+    }
 
     // Verify completion against evidence and check for natural language refusals/excuses
     const verify = CompletionVerifier.verifyCompletion(task, result, effectiveProvenance);
@@ -328,13 +353,27 @@ export class TaskManager {
     return task;
   }
 
+  public cancelTask(taskId: string, reason?: string): OfficeTask | null {
+    const task = this.tasks.get(taskId);
+    if (!task) return null;
+    if (task.status === "COMPLETED") return task;
+
+    task.status = "CANCELLED";
+    task.error = reason || "Task cancelled by user";
+    task.updatedAt = Date.now();
+    this.persistence.saveTask(task);
+    this.persistence.recordRunLog(taskId, `Task cancelled: ${task.error}`);
+    this.notifyUpdate(task);
+    return task;
+  }
+
   /**
    * Parent validates child delegation results independently rather than blindly trusting natural language.
    */
   private checkParentCompletion(parentTaskId?: string): void {
     if (!parentTaskId) return;
     const parent = this.tasks.get(parentTaskId);
-    if (!parent || parent.status === "COMPLETED" || parent.status === "FAILED") return;
+    if (!parent || parent.status === "COMPLETED" || parent.status === "FAILED" || parent.status === "CANCELLED") return;
 
     const children = this.listTasks({ parentTaskId });
     if (children.length === 0) return;

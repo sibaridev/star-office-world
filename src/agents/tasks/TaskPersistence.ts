@@ -74,9 +74,16 @@ export class TaskPersistence {
   public recoverInterruptedTasks(): OfficeTask[] {
     const tasks = this.listTasks();
     const updated: OfficeTask[] = [];
+    const inFlightStatuses: string[] = [
+      "IN_PROGRESS",
+      "RUNNING",
+      "ASSIGNED",
+      "WAITING_FOR_TOOL",
+      "WAITING_FOR_APPROVAL",
+    ];
 
     for (const task of tasks) {
-      if (task.status === "IN_PROGRESS" || task.status === "ASSIGNED") {
+      if (inFlightStatuses.includes(task.status)) {
         task.status = "INTERRUPTED";
         task.error = "Application restarted while task was in progress.";
         task.updatedAt = Date.now();

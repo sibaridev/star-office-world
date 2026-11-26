@@ -1753,6 +1753,13 @@
             pointer-events: none;
             max-width: 420px;
             width: calc(100% - 40px);
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            scrollbar-width: none;
+        }
+
+        #custom-toast-container::-webkit-scrollbar {
+            display: none;
         }
 
         .custom-toast {
@@ -2266,10 +2273,16 @@
                 document.body.appendChild(container);
             }
 
+            const rawType = String(type || 'info').toLowerCase().trim();
+            const cleanType = ['info', 'success', 'warning', 'error'].includes(rawType)
+                ? rawType
+                : (rawType === 'warn' ? 'warning' : 'info');
+
             const toast = document.createElement('div');
-            const cleanType = ['info', 'success', 'warning', 'error'].includes(type) ? type : 'info';
             toast.className = `custom-toast custom-toast-${cleanType}`;
-            toast.setAttribute('role', 'alert');
+            toast.setAttribute('role', cleanType === 'error' ? 'alert' : 'status');
+            toast.setAttribute('aria-live', cleanType === 'error' ? 'assertive' : 'polite');
+            toast.setAttribute('aria-atomic', 'true');
 
             const icons = {
                 info: 'ℹ️',
@@ -2284,9 +2297,10 @@
 
             const contentSpan = document.createElement('span');
             contentSpan.className = 'custom-toast-content';
-            contentSpan.textContent = String(message);
+            contentSpan.textContent = String(message !== undefined && message !== null ? message : '');
 
             const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
             closeBtn.className = 'custom-toast-close';
             closeBtn.setAttribute('aria-label', 'Close');
             closeBtn.textContent = '✕';
@@ -2296,130 +2310,255 @@
             toast.appendChild(closeBtn);
 
             let timer = null;
+            let isRemoved = false;
             const removeToast = () => {
-                if (timer) clearTimeout(timer);
+                if (isRemoved) return;
+                isRemoved = true;
+                if (timer) {
+                    clearTimeout(timer);
+                    timer = null;
+                }
                 toast.classList.add('toast-hiding');
                 setTimeout(() => {
-                    if (toast.parentNode) toast.parentNode.removeChild(toast);
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
                 }, 200);
             };
 
-            closeBtn.onclick = removeToast;
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                removeToast();
+            };
+
+            // Pause auto-dismiss timer on hover
+            toast.onmouseenter = () => {
+                if (timer) {
+                    clearTimeout(timer);
+                    timer = null;
+                }
+            };
+            toast.onmouseleave = () => {
+                if (!isRemoved && duration > 0 && !timer) {
+                    timer = setTimeout(removeToast, 1200);
+                }
+            };
+
             if (duration > 0) {
                 timer = setTimeout(removeToast, duration);
             }
 
+            toast.dismiss = removeToast;
             container.appendChild(toast);
             return toast;
         }
 
-        // ── Custom Accessible Confirm Modal System ──
-        let _confirmModalResolve = null;
+        // ── Custom Accessible Confirm Modal System with Queueing & Focus Trap ──
+        const _confirmModalQueue = [];
+        let _isConfirmModalActive = false;
+        let _confirmModalSessionPrevFocus = null;
+
+        function _ensureConfirmModalElements() {
+            let overlay = document.getElementById('custom-confirm-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'custom-confirm-overlay';
+                overlay.setAttribute('role', 'dialog');
+                overlay.setAttribute('aria-modal', 'true');
+                overlay.setAttribute('aria-labelledby', 'custom-confirm-title');
+                overlay.setAttribute('aria-describedby', 'custom-confirm-message');
+
+                const box = document.createElement('div');
+                box.id = 'custom-confirm-box';
+
+                const header = document.createElement('div');
+                header.id = 'custom-confirm-header';
+
+                const titleEl = document.createElement('span');
+                titleEl.id = 'custom-confirm-title';
+
+                const closeBtn = document.createElement('button');
+                closeBtn.id = 'custom-confirm-close-btn';
+                closeBtn.type = 'button';
+                closeBtn.setAttribute('aria-label', 'Close dialog');
+                closeBtn.textContent = '✕';
+
+                header.appendChild(titleEl);
+                header.appendChild(closeBtn);
+
+                const msgEl = document.createElement('div');
+                msgEl.id = 'custom-confirm-message';
+
+                const footer = document.createElement('div');
+                footer.id = 'custom-confirm-footer';
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.id = 'custom-confirm-cancel-btn';
+                cancelBtn.type = 'button';
+
+                const okBtn = document.createElement('button');
+                okBtn.id = 'custom-confirm-ok-btn';
+                okBtn.type = 'button';
+
+                footer.appendChild(cancelBtn);
+                footer.appendChild(okBtn);
+
+                box.appendChild(header);
+                box.appendChild(msgEl);
+                box.appendChild(footer);
+
+                overlay.appendChild(box);
+                document.body.appendChild(overlay);
+            }
+            return {
+                overlay,
+                box: document.getElementById('custom-confirm-box'),
+                titleEl: document.getElementById('custom-confirm-title'),
+                msgEl: document.getElementById('custom-confirm-message'),
+                okBtn: document.getElementById('custom-confirm-ok-btn'),
+                cancelBtn: document.getElementById('custom-confirm-cancel-btn'),
+                closeBtn: document.getElementById('custom-confirm-close-btn')
+            };
+        }
+
+        function _processNextConfirmModal() {
+            if (_confirmModalQueue.length === 0) {
+                _isConfirmModalActive = false;
+                const overlay = document.getElementById('custom-confirm-overlay');
+                if (overlay) {
+                    overlay.classList.remove('active');
+                    overlay.style.display = 'none';
+                }
+                if (_confirmModalSessionPrevFocus && typeof _confirmModalSessionPrevFocus.focus === 'function') {
+                    try { _confirmModalSessionPrevFocus.focus(); } catch (_) { }
+                }
+                _confirmModalSessionPrevFocus = null;
+                return;
+            }
+
+            _isConfirmModalActive = true;
+            const currentItem = _confirmModalQueue.shift();
+            const { options, resolve } = currentItem;
+
+            const config = typeof options === 'string'
+                ? { message: options }
+                : (options || {});
+
+            const title = config.title || (config.isDanger ? '⚠️ Confirm Action' : '💬 Confirmation');
+            const message = config.message || '';
+            const confirmText = config.confirmText || 'Confirm';
+            const cancelText = config.cancelText || 'Cancel';
+            const isDanger = Boolean(config.isDanger);
+
+            const els = _ensureConfirmModalElements();
+            const { overlay, box, titleEl, msgEl, okBtn, cancelBtn, closeBtn } = els;
+
+            if (okBtn) okBtn.type = 'button';
+            if (cancelBtn) cancelBtn.type = 'button';
+            if (closeBtn) closeBtn.type = 'button';
+
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            okBtn.textContent = confirmText;
+            cancelBtn.textContent = cancelText;
+
+            if (isDanger) {
+                box.classList.add('danger-mode');
+            } else {
+                box.classList.remove('danger-mode');
+            }
+
+            let resolved = false;
+            const finish = (result) => {
+                if (resolved) return;
+                resolved = true;
+
+                document.removeEventListener('keydown', handleKeyDown);
+                overlay.onclick = null;
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+                closeBtn.onclick = null;
+
+                resolve(Boolean(result));
+
+                _processNextConfirmModal();
+            };
+
+            const focusables = [closeBtn, cancelBtn, okBtn].filter(Boolean);
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    finish(false);
+                    return;
+                }
+                if (e.key === 'Enter') {
+                    if (document.activeElement === cancelBtn || document.activeElement === closeBtn) {
+                        e.preventDefault();
+                        finish(false);
+                        return;
+                    }
+                    e.preventDefault();
+                    finish(true);
+                    return;
+                }
+                if (e.key === 'Tab') {
+                    if (focusables.length === 0) return;
+                    const first = focusables[0];
+                    const last = focusables[focusables.length - 1];
+                    if (e.shiftKey) {
+                        if (document.activeElement === first || !focusables.includes(document.activeElement)) {
+                            e.preventDefault();
+                            last.focus();
+                        }
+                    } else {
+                        if (document.activeElement === last || !focusables.includes(document.activeElement)) {
+                            e.preventDefault();
+                            first.focus();
+                        }
+                    }
+                }
+            };
+
+            okBtn.onclick = (e) => {
+                e.stopPropagation();
+                finish(true);
+            };
+            cancelBtn.onclick = (e) => {
+                e.stopPropagation();
+                finish(false);
+            };
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                finish(false);
+            };
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    finish(false);
+                }
+            };
+
+            document.addEventListener('keydown', handleKeyDown);
+
+            overlay.style.display = 'flex';
+            overlay.classList.add('active');
+
+            if (isDanger && cancelBtn) {
+                cancelBtn.focus();
+            } else if (okBtn) {
+                okBtn.focus();
+            }
+        }
 
         function showConfirmModal(options) {
             return new Promise((resolve) => {
-                if (_confirmModalResolve) {
-                    _confirmModalResolve(false);
-                    _confirmModalResolve = null;
+                if (!_isConfirmModalActive && !_confirmModalSessionPrevFocus) {
+                    _confirmModalSessionPrevFocus = document.activeElement;
                 }
-
-                _confirmModalResolve = resolve;
-
-                const config = typeof options === 'string'
-                    ? { message: options }
-                    : (options || {});
-
-                const title = config.title || (config.isDanger ? '⚠️ Confirm Action' : '💬 Confirmation');
-                const message = config.message || '';
-                const confirmText = config.confirmText || 'Confirm';
-                const cancelText = config.cancelText || 'Cancel';
-                const isDanger = Boolean(config.isDanger);
-
-                let overlay = document.getElementById('custom-confirm-overlay');
-                let box = document.getElementById('custom-confirm-box');
-                let titleEl = document.getElementById('custom-confirm-title');
-                let msgEl = document.getElementById('custom-confirm-message');
-                let okBtn = document.getElementById('custom-confirm-ok-btn');
-                let cancelBtn = document.getElementById('custom-confirm-cancel-btn');
-                let closeBtn = document.getElementById('custom-confirm-close-btn');
-
-                if (!overlay) {
-                    overlay = document.createElement('div');
-                    overlay.id = 'custom-confirm-overlay';
-                    overlay.setAttribute('role', 'dialog');
-                    overlay.setAttribute('aria-modal', 'true');
-                    overlay.setAttribute('aria-labelledby', 'custom-confirm-title');
-                    overlay.setAttribute('aria-describedby', 'custom-confirm-message');
-                    overlay.innerHTML = `
-                        <div id="custom-confirm-box">
-                            <div id="custom-confirm-header">
-                                <span id="custom-confirm-title"></span>
-                                <button id="custom-confirm-close-btn" aria-label="Close dialog">✕</button>
-                            </div>
-                            <div id="custom-confirm-message"></div>
-                            <div id="custom-confirm-footer">
-                                <button id="custom-confirm-cancel-btn"></button>
-                                <button id="custom-confirm-ok-btn"></button>
-                            </div>
-                        </div>
-                    `;
-                    document.body.appendChild(overlay);
-                    box = document.getElementById('custom-confirm-box');
-                    titleEl = document.getElementById('custom-confirm-title');
-                    msgEl = document.getElementById('custom-confirm-message');
-                    okBtn = document.getElementById('custom-confirm-ok-btn');
-                    cancelBtn = document.getElementById('custom-confirm-cancel-btn');
-                    closeBtn = document.getElementById('custom-confirm-close-btn');
+                _confirmModalQueue.push({ options, resolve });
+                if (!_isConfirmModalActive) {
+                    _processNextConfirmModal();
                 }
-
-                titleEl.textContent = title;
-                msgEl.textContent = message;
-                okBtn.textContent = confirmText;
-                cancelBtn.textContent = cancelText;
-
-                if (isDanger) {
-                    box.classList.add('danger-mode');
-                } else {
-                    box.classList.remove('danger-mode');
-                }
-
-                const cleanup = (result) => {
-                    overlay.classList.remove('active');
-                    overlay.style.display = 'none';
-                    document.removeEventListener('keydown', handleKeyDown);
-                    overlay.onclick = null;
-                    okBtn.onclick = null;
-                    cancelBtn.onclick = null;
-                    closeBtn.onclick = null;
-                    if (_confirmModalResolve) {
-                        const r = _confirmModalResolve;
-                        _confirmModalResolve = null;
-                        r(result);
-                    }
-                };
-
-                const handleKeyDown = (e) => {
-                    if (e.key === 'Escape') {
-                        e.preventDefault();
-                        cleanup(false);
-                    } else if (e.key === 'Enter' && document.activeElement !== cancelBtn) {
-                        e.preventDefault();
-                        cleanup(true);
-                    }
-                };
-
-                okBtn.onclick = () => cleanup(true);
-                cancelBtn.onclick = () => cleanup(false);
-                closeBtn.onclick = () => cleanup(false);
-                overlay.onclick = (e) => {
-                    if (e.target === overlay) cleanup(false);
-                };
-
-                document.addEventListener('keydown', handleKeyDown);
-
-                overlay.style.display = 'flex';
-                overlay.classList.add('active');
-                okBtn.focus();
             });
         }
 
@@ -2429,11 +2568,13 @@
         window['alert'] = function (msg) {
             showToast(msg, 'info');
         };
+        window.alert = window['alert'];
         window['confirm'] = function (msg) {
             console.warn('[UI] Native confirm called synchronously. Prefer await showConfirmModal().');
             showConfirmModal({ message: String(msg) });
             return false;
         };
+        window.confirm = window['confirm'];
 
         // UI language handler
         let uiLang = localStorage.getItem('uiLang') || 'en';
@@ -6203,12 +6344,12 @@
         <div id="custom-confirm-box">
             <div id="custom-confirm-header">
                 <span id="custom-confirm-title">⚠️ Confirmation Required</span>
-                <button id="custom-confirm-close-btn" aria-label="Close dialog">✕</button>
+                <button id="custom-confirm-close-btn" type="button" aria-label="Close dialog">✕</button>
             </div>
             <div id="custom-confirm-message"></div>
             <div id="custom-confirm-footer">
-                <button id="custom-confirm-cancel-btn">Cancel</button>
-                <button id="custom-confirm-ok-btn">Confirm</button>
+                <button id="custom-confirm-cancel-btn" type="button">Cancel</button>
+                <button id="custom-confirm-ok-btn" type="button">Confirm</button>
             </div>
         </div>
     </div>

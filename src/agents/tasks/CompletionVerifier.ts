@@ -38,6 +38,31 @@ export class CompletionVerifier {
   ];
 
   /**
+   * Helper to produce an operation key for matching failed executions with their recoveries.
+   */
+  private static getOperationKey(p: ToolExecutionProvenance, workspacePath?: string): string {
+    const params = p.inputParameters || {};
+    const filePath = (params["filePath"] as string) || (params["targetPath"] as string);
+    if (filePath) {
+      let resolved = path.normalize(filePath);
+      if (!path.isAbsolute(resolved) && workspacePath) {
+        resolved = path.normalize(path.resolve(workspacePath, filePath));
+      }
+      // Group write/edit under common file modification target
+      const isModTool = p.tool === "workspace_write_file" || p.tool === "workspace_edit_file";
+      const toolCategory = isModTool ? "file_mod" : p.tool;
+      return `${toolCategory}:${resolved.toLowerCase()}`;
+    }
+
+    const command = params["command"] as string;
+    if (command) {
+      return `${p.tool}:${command.trim().toLowerCase()}`;
+    }
+
+    return p.tool;
+  }
+
+  /**
    * Evaluates proposed completion output and execution provenance against task requirements.
    */
   public static verifyCompletion(
@@ -57,13 +82,39 @@ export class CompletionVerifier {
     }
 
     // 2. Failed Tool Executions Gate
-    // If the latest tool execution failed, block completion until rectified
-    const lastExecution = provenance.length > 0 ? provenance[provenance.length - 1] : null;
-    if (lastExecution && lastExecution.status === "FAILED") {
+    // A historical failed tool execution followed by successful recovery MUST NOT automatically fail a task.
+    // A latest unresolved tool failure MUST NOT be silently ignored.
+    const unresolvedFailures: ToolExecutionProvenance[] = [];
+
+    for (let i = 0; i < provenance.length; i++) {
+      const exec = provenance[i];
+      if (exec.status === "FAILED" || exec.status === "BLOCKED") {
+        const opKey = this.getOperationKey(exec, task.workspacePath);
+        // Look for subsequent recovery (a later execution with status COMPLETED for the same opKey)
+        let recovered = false;
+        for (let j = i + 1; j < provenance.length; j++) {
+          const subsequent = provenance[j];
+          if (this.getOperationKey(subsequent, task.workspacePath) === opKey) {
+            if (subsequent.status === "COMPLETED") {
+              recovered = true;
+            } else if (subsequent.status === "FAILED" || subsequent.status === "BLOCKED") {
+              // If it failed again later, earlier recovery is voided
+              recovered = false;
+            }
+          }
+        }
+        if (!recovered) {
+          unresolvedFailures.push(exec);
+        }
+      }
+    }
+
+    if (unresolvedFailures.length > 0) {
+      const latestUnresolved = unresolvedFailures[unresolvedFailures.length - 1];
       return {
         canComplete: false,
         status: "FAILED",
-        blockReason: `Execution Failure: Tool '${lastExecution.tool}' failed with error: ${lastExecution.error || "Unknown failure"}`,
+        blockReason: `Execution Failure: Tool '${latestUnresolved.tool}' failed with error: ${latestUnresolved.error || "Unknown failure"}`,
       };
     }
 
@@ -280,6 +331,38 @@ export class CompletionVerifier {
       }
     }
 
+    // 7. Required Evidence Enforcement
+    if (task.requiredEvidence && task.requiredEvidence.length > 0) {
+      const missingEvidence: string[] = [];
+      for (const req of task.requiredEvidence) {
+        const reqLower = req.toLowerCase();
+        const found =
+          verifiedEvidence.some(
+            (e) =>
+              e.operation.toLowerCase().includes(reqLower) ||
+              e.tool.toLowerCase().includes(reqLower) ||
+              e.targetPath.toLowerCase().includes(reqLower) ||
+              e.result.toLowerCase().includes(reqLower)
+          ) ||
+          completedToolExecutions.some(
+            (p) =>
+              p.tool.toLowerCase().includes(reqLower) ||
+              (p.output && p.output.toLowerCase().includes(reqLower))
+          );
+        if (!found) {
+          missingEvidence.push(req);
+        }
+      }
+      if (missingEvidence.length > 0) {
+        return {
+          canComplete: false,
+          status: "BLOCKED",
+          blockReason: `Required evidence missing: [${missingEvidence.join(", ")}].`,
+          incompleteRequirements: missingEvidence.map((e) => `Provide evidence for '${e}'`),
+        };
+      }
+    }
+
     return {
       canComplete: true,
       status: "COMPLETED",
@@ -294,11 +377,16 @@ export class CompletionVerifier {
     childTask: OfficeTask,
     provenance: ToolExecutionProvenance[] = []
   ): { valid: boolean; propagatedStatus: TaskStatus; explanation: string } {
-    if (childTask.status === "BLOCKED" || childTask.status === "FAILED") {
+    if (
+      childTask.status === "BLOCKED" ||
+      childTask.status === "FAILED" ||
+      childTask.status === "CANCELLED" ||
+      childTask.status === "INTERRUPTED"
+    ) {
       return {
         valid: false,
         propagatedStatus: childTask.status,
-        explanation: childTask.blockReason || childTask.error || "Child task reported failure/blocker",
+        explanation: childTask.blockReason || childTask.error || `Child task reported ${childTask.status}`,
       };
     }
 
